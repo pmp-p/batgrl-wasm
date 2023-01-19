@@ -9,5 +9,6 @@ docsrc/reference/generated
 
 examples/_old
 
-*-pygbag.png
+*-pygbag.???
 /build
+/dist
