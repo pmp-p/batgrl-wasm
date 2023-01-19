@@ -22,6 +22,7 @@ def read_stdin():
     """
     Read (non-blocking) from stdin and return it decoded.
     """
+
     if not select.select(*SELECT_ARGS)[0]:
         return ""
 
@@ -29,6 +30,12 @@ def read_stdin():
         return DECODER.decode(os.read(FILENO, 1024))
     except OSError:
         return ""
+
+if sys.platform in ('emscripten','wasi'):
+    import embed
+    embed.warn("@@@ 36: read_stdin override")
+    def read_stdin():
+        return DECODER.decode(embed.os_read())
 
 def _create_mouse_event(data):
     """
@@ -105,7 +112,11 @@ def events():
     """
     Yield input events.
     """
-    data = "".join(iter(read_stdin, ""))
+    #embed.warn("@@@@ 115 Yield input events.")
+    if sys.platform in ('emscripten','wasi'):
+        data = DECODER.decode(embed.os_read())
+    else:
+        data = "".join(iter(read_stdin, ""))
 
     while data:
         data = _find_longest_match(data)

@@ -8,3 +8,6 @@ docsrc/_build
 docsrc/reference/generated
 
 examples/_old
+
+*-pygbag.png
+/build
