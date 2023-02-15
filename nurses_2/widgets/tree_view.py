@@ -2,7 +2,6 @@
 A base for creating tree-like views. Tree views are composed of nodes that
 can be selected and toggled open or closed.
 """
-from ..colors import ColorPair
 from .behaviors.button_behavior import ButtonBehavior, ButtonState
 from .behaviors.themable import Themable
 from .text_widget import TextWidget
@@ -79,17 +78,14 @@ class TreeViewNode(Themable, ButtonBehavior, TextWidget):
         The array of characters for the widget.
     colors : numpy.ndarray
         The array of color pairs for each character in :attr:`canvas`.
-    default_char : str, default: " "
+    default_char : str
         Default background character.
-    default_color_pair : ColorPair, default: WHITE_ON_BLACK
+    default_color_pair : ColorPair
         Default color pair of widget.
-    default_fg_color: Color
+    default_fg_color : Color
         The default foreground color.
-    default_bg_color: Color
+    default_bg_color : Color
         The default background color.
-    get_view: CanvasView
-        Return a :class:`nurses_2.widgets.text_widget_data_structures.CanvasView`
-        of the underlying :attr:`canvas`.
     size : Size
         Size of widget.
     height : int
@@ -175,8 +171,7 @@ class TreeViewNode(Themable, ButtonBehavior, TextWidget):
     unselect:
         Unselect this node.
     update_theme:
-        Repaint the widget with a new theme. This should be called at:
-        least once when a widget is initialized.
+        Paint the widget with current theme.
     update_normal:
         Paint the normal state.
     update_hover:
@@ -188,13 +183,13 @@ class TreeViewNode(Themable, ButtonBehavior, TextWidget):
     add_border:
         Add a border to the widget.
     normalize_canvas:
-        Add zero-width characters after each full-width character.
-    add_text:
-        Add text to the canvas.
+        Ensure column width of text in the canvas is equal to widget width.
+    add_str:
+        Add a single line of text to the canvas.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -248,23 +243,29 @@ class TreeViewNode(Themable, ButtonBehavior, TextWidget):
 
         super().__init__(**kwargs)
 
-        self.update_theme()
+    def _repaint(self):
+        if self.is_selected:
+            self.colors[:] = self.color_theme.item_selected
+        elif self.state is ButtonState.NORMAL:
+            self.colors[:] = self.color_theme.primary
+        elif self.state is ButtonState.HOVER:
+            self.colors[:] = self.color_theme.item_hover
+
+    def on_size(self):
+        super().on_size()
+        self._repaint()
 
     def update_theme(self):
-        ct = self.color_theme
+        self._repaint()
 
-        self.normal_color_pair = ct.primary_color_pair
-        self.hover_color_pair = ct.primary_light_color_pair
-        self.selected_color_pair = ct.secondary_color_pair
-        self.hover_selected_color_pair = ColorPair.from_colors(ct.secondary_fg, ct.primary_bg_light)
+    def update_normal(self):
+        self._repaint()
 
-        self.repaint()
+    def update_hover(self):
+        self._repaint()
 
-    def repaint(self):
-        if self.state is ButtonState.NORMAL:
-            self.update_normal()
-        else:
-            self.update_hover()
+    def update_down(self):
+        self._repaint()
 
     @property
     def root_node(self):
@@ -322,7 +323,7 @@ class TreeViewNode(Themable, ButtonBehavior, TextWidget):
         """
         self.is_selected = False
         self.root_node.tree_view.selected_node = None
-        self.repaint()
+        self._repaint()
 
     def select(self):
         """
@@ -333,19 +334,7 @@ class TreeViewNode(Themable, ButtonBehavior, TextWidget):
 
         self.is_selected = True
         self.root_node.tree_view.selected_node = self
-        self.repaint()
-
-    def update_hover(self):
-        if self.is_selected:
-            self.colors[:] = self.hover_selected_color_pair
-        else:
-            self.colors[:] = self.hover_color_pair
-
-    def update_normal(self):
-        if self.is_selected:
-            self.colors[:] = self.selected_color_pair
-        else:
-            self.colors[:] = self.normal_color_pair
+        self._repaint()
 
     def on_release(self):
         self.select()
@@ -476,8 +465,8 @@ class TreeView(Widget):
         Update tree layout after a child node is toggled open or closed.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:

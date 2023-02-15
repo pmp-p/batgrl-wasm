@@ -1,30 +1,33 @@
-"""
-A graphic particle field.
+from wcwidth import wcswidth
 
-A particle field specializes in handling many single "pixel" children.
-"""
-import numpy as np
+from ..clamp import clamp
+from .behaviors.themable import Themable
+from .text_widget import TextWidget, add_text
+from .widget import Widget, Size
 
-from ..widget import Widget
-
-__all__ = "GraphicParticleField",
+# TODO: Set text with limited markdown.
 
 
-class GraphicParticleField(Widget):
+class TextPanel(Themable, TextWidget):
     """
-    A graphic particle field.
+    A widget for static multi-line text.
+
+    Text can be set by setting the `text` attribute. The read-only attribute :attr:`min_size` is
+    the minimum size the panel must be to show all text. This can be used to set the size of the
+    panel, e.g., ``my_panel.size = my_panel.min_size``.
 
     Parameters
     ----------
-    particle_positions : np.ndarray | None=None, default: None
-        Positions of particles. Expect int array with shape `N, 2`.
-    particle_colors : np.ndarray | None=None, default: None
-        Colors of particles. Expect uint8 array with shape `N, 4`.
-    particle_alphas : np.ndarray | None=None, default: None
-        Alphas of particles. Expect float array of values between
-        0 and 1 with shape `N,`.
-    particle_properties : dict[str, np.ndarray]=None, default: None
-        Additional particle properties.
+    text : str, default: ""
+        Panel text.
+    padding_y: int, default: 1
+        Padding on top and bottom of panel.
+    padding_x: int, default: 1
+        Padding on the left and right of panel.
+    default_char : str, default: " "
+        Default background character. This should be a single unicode half-width grapheme.
+    default_color_pair : ColorPair, default: WHITE_ON_BLACK
+        Default color of widget.
     size : Size, default: Size(10, 10)
         Size of widget.
     pos : Point, default: Point(0, 0)
@@ -64,16 +67,28 @@ class GraphicParticleField(Widget):
 
     Attributes
     ----------
-    nparticles : int
-        Number of particles in particle field.
-    particle_positions : np.ndarray
-        Positions of particles.
-    particle_colors : np.ndarray
-        Colors of particles.
-    particle_alphas : np.ndarray
-        Alphas of particles.
-    particle_properties : dict[str, np.ndarray]
-        Additional particle properties.
+    text : str
+        Panel text.
+    padding_y: int
+        Padding on top and bottom of panel.
+    padding_x: int
+        Padding on the left and right of panel.
+    min_size : Size
+        Minimum size needed to show all text.
+    text_container : TextWidget
+        Child widget that contains the panel text.
+    canvas : numpy.ndarray
+        The array of characters for the widget.
+    colors : numpy.ndarray
+        The array of color pairs for each character in :attr:`canvas`.
+    default_char : str
+        Default background character.
+    default_color_pair : ColorPair
+        Default color pair of widget.
+    default_fg_color : Color
+        The default foreground color.
+    default_bg_color : Color
+        The default background color.
     size : Size
         Size of widget.
     height : int
@@ -145,10 +160,18 @@ class GraphicParticleField(Widget):
 
     Methods
     -------
+    update_theme:
+        Paint the widget with current theme.
+    add_border:
+        Add a border to the widget.
+    normalize_canvas:
+        Ensure column width of text in the canvas is equal to widget width.
+    add_str:
+        Add a single line of text to the canvas.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -188,72 +211,73 @@ class GraphicParticleField(Widget):
     destroy:
         Destroy this widget and all descendents.
     """
-    def __init__(
-        self,
-        particle_positions: np.ndarray | None=None,
-        particle_colors: np.ndarray | None=None,
-        particle_alphas: np.ndarray | None=None,
-        particle_properties: dict[str, np.ndarray]=None,
-        **kwargs
-    ):
+    def __init__(self, *, text: str="", padding_y: int=1, padding_x: int=1, **kwargs):
         super().__init__(**kwargs)
 
-        if particle_positions is None:
-            self.particle_positions = np.zeros((0, 2), dtype=int)
-        else:
-            self.particle_positions = particle_positions
+        self.text_container = TextWidget()
 
-        if particle_colors is None:
-            self.particle_colors = np.zeros((len(self.particle_positions), 4), dtype=np.uint8)
-        else:
-            self.particle_colors = particle_colors
+        self._panel = Widget()
+        self._panel.add_widget(self.text_container)
 
-        if particle_alphas is None:
-            self.particle_alphas = np.ones(len(self.particle_positions), dtype=np.float)
-        else:
-            self.particle_alphas = particle_alphas
+        self.add_widget(self._panel)
 
-        if particle_properties is None:
-            self.particle_properties = {}
-        else:
-            self.particle_properties = particle_properties
+        self._padding_y = clamp(padding_y, 0, None)
+        self._padding_x = clamp(padding_x, 0, None)
+        self._update_padding()
+
+        self.text = text
 
     @property
-    def nparticles(self) -> int:
+    def padding_y(self) -> int:
+        return self._padding_y
+
+    @padding_y.setter
+    def padding_y(self, padding_y: int):
+        self._padding_y = clamp(padding_y, 0, None)
+        self._update_padding()
+
+    @property
+    def padding_x(self) -> int:
+        return self._padding_x
+
+    @padding_x.setter
+    def padding_x(self, padding_x: int):
+        self._padding_x = clamp(padding_x, 0, None)
+        self._update_padding()
+
+    def _update_padding(self):
+        h, w = self.size
+        self._panel.size = h - 2 * self._padding_y, w - 2 * self._padding_x
+        self._panel.pos = self._padding_y, self._padding_x
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    @text.setter
+    def text(self, text: str):
+        self._text = text
+        lines = text.splitlines()
+        width = max(map(wcswidth, lines), default=0)
+        self.text_container.size = len(lines), width
+        add_text(self.text_container.canvas, text)
+
+    @property
+    def min_size(self) -> Size:
         """
-        Number of particles in particle field.
+        Minimum size needed for panel to show all text.
         """
-        return len(self.particle_positions)
+        h, w = self.text_container.size
+        return Size(h + 2 * self.padding_y, w + 2 * self.padding_x)
 
-    def render(self, canvas_view, colors_view: np.ndarray, source: tuple[slice, slice]):
-        """
-        Paint region given by `source` into `canvas_view` and `colors_view`.
-        """
-        vert_slice, hori_slice = source
-        t = vert_slice.start
-        h = vert_slice.stop - t
-        l = hori_slice.start
-        w = hori_slice.stop - l
+    def on_size(self):
+        super().on_size()
+        self._update_padding()
 
-        pos = self.particle_positions - (2 * t, l)
-        where_inbounds = np.nonzero((((0, 0) <= pos) & (pos < (2 * h, w))).all(axis=1))
-        local_ys, local_xs = pos[where_inbounds].T
-
-        ch, cw, _ = colors_view.shape
-        texture_view = colors_view.reshape(ch, cw, 2, 3).swapaxes(1, 2).reshape(2 * ch, w, 3)
-        colors = self.particle_colors[where_inbounds]
-        if not self.is_transparent:
-            texture_view[local_ys, local_xs] = colors[..., :3]
-        else:
-            mask = canvas_view != "▀"
-            colors_view[..., :3][mask] = colors_view[..., 3:][mask]
-
-            buffer = np.subtract(colors[:, :3], texture_view[local_ys, local_xs], dtype=float)
-            buffer *= colors[:, 3, None]
-            buffer *= self.particle_alphas[where_inbounds][:, None]
-            buffer /= 255
-            texture_view[local_ys, local_xs] = (buffer + texture_view[local_ys, local_xs]).astype(np.uint8)
-
-        colors_view[:] = texture_view.reshape(h, 2, w, 3).swapaxes(1, 2).reshape(h, w, 6)
-        canvas_view[:] = "▀"
-        self.render_children(source, canvas_view, colors_view)
+    def update_theme(self):
+        panel = self.color_theme.panel
+        self.colors[:] = panel
+        self.default_color_pair = panel
+        self._panel.background_color_pair = panel
+        self.text_container.colors[:] = panel
+        self.text_container.default_color_pair = panel

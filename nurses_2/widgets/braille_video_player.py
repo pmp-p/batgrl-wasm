@@ -8,8 +8,8 @@ from platform import uname
 import cv2
 import numpy as np
 
-from ._binary_to_braille import binary_to_braille
-from .text_widget import TextWidget
+from ._binary_to_char import binary_to_braille
+from .text_widget import TextWidget, style_char
 
 __all__ = "BrailleVideo",
 
@@ -78,13 +78,13 @@ class BrailleVideoPlayer(TextWidget):
     ----------
     source : Path | str | int
         A path, URL, or capturing device (by index) of the video.
-    loop : bool, default: True
+    loop : bool
         If true, video will restart after last frame.
-    gray_threshold : int, default: 127
+    gray_threshold : int
         Pixel values over this threshold in the source video will be rendered.
-    enable_shading : bool, default: False
+    enable_shading : bool
         If true, foreground will be set to `default_fg_color` multiplied by the normalized grays from the source.
-    invert_colors : bool, default: False
+    invert_colors : bool
         If true, colors in the source are inverted before video is rendered.
     is_device : bool
         If true, video is from a video capturing device.
@@ -92,17 +92,14 @@ class BrailleVideoPlayer(TextWidget):
         The array of characters for the widget.
     colors : numpy.ndarray
         The array of color pairs for each character in :attr:`canvas`.
-    default_char : str, default: " "
+    default_char : str
         Default background character.
-    default_color_pair : ColorPair, default: WHITE_ON_BLACK
+    default_color_pair : ColorPair
         Default color pair of widget.
-    default_fg_color: Color
+    default_fg_color : Color
         The default foreground color.
-    default_bg_color: Color
+    default_bg_color : Color
         The default background color.
-    get_view: CanvasView
-        Return a :class:`nurses_2.widgets.text_widget_data_structures.CanvasView`
-        of the underlying :attr:`canvas`.
     size : Size
         Size of widget.
     height : int
@@ -185,13 +182,13 @@ class BrailleVideoPlayer(TextWidget):
     add_border:
         Add a border to the widget.
     normalize_canvas:
-        Add zero-width characters after each full-width character.
-    add_text:
-        Add text to the canvas.
+        Ensure column width of text in the canvas is equal to widget width.
+    add_str:
+        Add a single line of text to the canvas.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -298,22 +295,21 @@ class BrailleVideoPlayer(TextWidget):
             atexit.unregister(self._resource.release)
             self._resource = None
             self._current_frame = None
-            self.canvas[:] = self.default_char
+            self.canvas["char"][:] = self.default_char
 
     def on_size(self):
         h, w = self.size
         self.colors = np.full((h, w, 6), self.default_color_pair, dtype=np.uint8)
+        self.canvas = np.full((h, w), style_char(self.default_char))
 
         if self._current_frame is not None:
             upscaled = cv2.resize(self._current_frame, (2 * w, 4 * h)) > 0
             sectioned = np.swapaxes(upscaled.reshape(h, 4, w, 2), 1, 2)
-            self.canvas = binary_to_braille(sectioned)
+            self.canvas["char"] = binary_to_braille(sectioned)
 
             if self.enable_shading:
                 grays_normalized = cv2.resize(self._current_frame, (w, h)) / 255
                 self.colors[..., :3] = (grays_normalized[..., None] * self.default_fg_color).astype(np.uint8)
-        else:
-            self.canvas = np.full((h, w), self.default_char, dtype=object)
 
     def _time_delta(self) -> float:
         return time.monotonic() - self._resource.get(cv2.CAP_PROP_POS_MSEC) / 1000
@@ -348,7 +344,7 @@ class BrailleVideoPlayer(TextWidget):
 
             upscaled = cv2.resize(self._current_frame, (2 * w, 4 * h)) > self.gray_threshold
             sectioned = np.swapaxes(upscaled.reshape(h, 4, w, 2), 1, 2)
-            self.canvas[:] = binary_to_braille(sectioned)
+            self.canvas["char"][:] = binary_to_braille(sectioned)
 
         if self.loop:
             self.seek(0)
@@ -389,4 +385,4 @@ class BrailleVideoPlayer(TextWidget):
         self.pause()
         self.seek(0)
         self._current_frame = None
-        self.canvas[:] = self.default_char
+        self.canvas["char"][:] = self.default_char

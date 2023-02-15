@@ -6,8 +6,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from ._binary_to_braille import binary_to_braille
-from .text_widget import TextWidget
+from ._binary_to_char import binary_to_braille
+from .text_widget import TextWidget, style_char
 
 
 class BrailleImage(TextWidget):
@@ -67,17 +67,14 @@ class BrailleImage(TextWidget):
         The array of characters for the widget.
     colors : numpy.ndarray
         The array of color pairs for each character in :attr:`canvas`.
-    default_char : str, default: " "
+    default_char : str
         Default background character.
-    default_color_pair : ColorPair, default: WHITE_ON_BLACK
+    default_color_pair : ColorPair
         Default color pair of widget.
-    default_fg_color: Color
+    default_fg_color : Color
         The default foreground color.
-    default_bg_color: Color
+    default_bg_color : Color
         The default background color.
-    get_view: CanvasView
-        Return a :class:`nurses_2.widgets.text_widget_data_structures.CanvasView`
-        of the underlying :attr:`canvas`.
     size : Size
         Size of widget.
     height : int
@@ -152,13 +149,13 @@ class BrailleImage(TextWidget):
     add_border:
         Add a border to the widget.
     normalize_canvas:
-        Add zero-width characters after each full-width character.
-    add_text:
-        Add text to the canvas.
+        Ensure column width of text in the canvas is equal to widget width.
+    add_str:
+        Add a single line of text to the canvas.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -214,7 +211,7 @@ class BrailleImage(TextWidget):
     def on_size(self):
         h, w = self._size
 
-        self.canvas = np.full((h, w), self.default_char, dtype=object)
+        self.canvas = np.full((h, w), style_char(self.default_char))
         self.colors = np.full((h, w, 6), self.default_color_pair, dtype=np.uint8)
 
         self._load_texture()
@@ -240,7 +237,7 @@ class BrailleImage(TextWidget):
         average_lightness = np.average(lightness, axis=(2, 3))
         where_dots = lightness > average_lightness[..., None, None]
 
-        self.canvas = binary_to_braille(where_dots)
+        self.canvas["char"] = binary_to_braille(where_dots)
 
         ndots = where_dots.sum(axis=(2, 3))
         ndots_neg = 8 - ndots

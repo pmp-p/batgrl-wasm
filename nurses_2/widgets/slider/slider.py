@@ -7,6 +7,7 @@ from ...clamp import clamp
 from ...colors import Color
 from ...io import MouseEventType
 from ..text_widget import TextWidget
+from ..widget import subscribable
 from .handle import _Handle
 
 
@@ -85,7 +86,7 @@ class Slider(TextWidget):
         True if slider value can be changed.
     callback : Callable
         Single argument callable called with new value of slider when slider is updated.
-    slider_char : str, default: "▬"
+    slider_char : str
         Character used to draw the slider.
     proportion : float
         Current proportion of slider.
@@ -95,17 +96,14 @@ class Slider(TextWidget):
         The array of characters for the widget.
     colors : numpy.ndarray
         The array of color pairs for each character in `canvas`.
-    default_char : str, default: " "
+    default_char : str
         Default background character.
-    default_color_pair : ColorPair, default: WHITE_ON_BLACK
+    default_color_pair : ColorPair
         Default color pair of widget.
-    default_fg_color: Color
+    default_fg_color : Color
         The default foreground color.
-    default_bg_color: Color
+    default_bg_color : Color
         The default background color.
-    get_view: CanvasView
-        Return a :class:`nurses_2.widgets.text_widget_data_structures.CanvasView`
-        of the underlying :attr:`canvas`.
     size : Size
         Size of widget.
     height : int
@@ -180,13 +178,13 @@ class Slider(TextWidget):
     add_border:
         Add a border to the widget.
     normalize_canvas:
-        Add zero-width characters after each full-width character.
-    add_text:
-        Add text to the canvas.
+        Ensure column width of text in the canvas is equal to widget width.
+    add_str:
+        Add a single line of text to the canvas.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -262,19 +260,20 @@ class Slider(TextWidget):
     @slider_char.setter
     def slider_char(self, char: str):
         self._slider_char = char
-        self.canvas[self.height // 2] = char
+        self.canvas["char"][self.height // 2] = char
 
     def on_size(self):
         super().on_size()
-        self.canvas[:] = self.default_char
+        self.canvas["char"][:] = self.default_char
+        self.canvas["char"][self.height // 2] = self.slider_char
         self.colors[:] = self.default_color_pair
-        self.canvas[self.height // 2] = self.slider_char
 
     @property
     def proportion(self) -> float:
         return self._proportion
 
     @proportion.setter
+    @subscribable
     def proportion(self, value: float):
         if self.slider_enabled:
             self._proportion = clamp(value, 0, 1)
@@ -283,14 +282,12 @@ class Slider(TextWidget):
             if self.callback is not None:
                 self.callback(self._value)
 
-            if handle := getattr(self, "handle", False):
-                handle.update_handle()
-
     @property
     def value(self) -> float:
         return self._value
 
     @value.setter
+    @subscribable
     def value(self, value: float):
         value = clamp(value, self.min, self.max)
         self.proportion = (value - self.min) / (self.max - self.min)

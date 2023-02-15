@@ -40,7 +40,7 @@ class _ShadeSelector(GrabbableBehavior, GraphicWidget):
         super().__init__(**kwargs)
 
         self._shade_indicator = TextWidget(size=(1, 1), default_color_pair=WHITE_ON_RED)
-        self._shade_indicator.add_text("○")
+        self._shade_indicator.add_str("○")
         self._shade_hint = 0.0, 1.0
         self.add_widget(self._shade_indicator)
 
@@ -79,10 +79,10 @@ class _ShadeSelector(GrabbableBehavior, GraphicWidget):
 
         self._shade_indicator.colors[:] = shade
 
-        self.label.add_text(hex(r * 2**16 + g * 2**8 + b)[2:], row=1, column=1)
-        self.label.add_text(f"R: {r:>3}", row=3, column=1)
-        self.label.add_text(f"G: {g:>3}", row=4, column=1)
-        self.label.add_text(f"B: {b:>3}", row=5, column=1)
+        self.label.add_str(hex(r * 2**16 + g * 2**8 + b)[2:], (1, 1))
+        self.label.add_str(f"R: {r:>3}", (3, 1))
+        self.label.add_str(f"G: {g:>3}", (4, 1))
+        self.label.add_str(f"B: {b:>3}", (5, 1))
 
     def grab(self, mouse_event):
         super().grab(mouse_event)
@@ -106,7 +106,7 @@ class _HueSelector(GrabbableBehavior, GraphicWidget):
 
         self._hue_hint = 0.0
         self._hue_indicator = TextWidget(size=(1, 1), default_color_pair=WHITE_ON_RED)
-        self._hue_indicator.add_text("▼")
+        self._hue_indicator.add_str("▼")
 
         self.add_widget(self._hue_indicator)
 
@@ -263,12 +263,11 @@ class ColorPicker(Themable, Widget):
     Methods
     -------
     update_theme:
-        Repaint the widget with a new theme. This should be called at:
-        least once when a widget is initialized.
+        Paint the widget with current theme.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -347,8 +346,6 @@ class ColorPicker(Themable, Widget):
 
         self.add_widgets(self.color_swatch, self.hues, self.shades, self.label)
 
-        self.update_theme()
-
     def on_size(self):
         h, w = self._size
 
@@ -369,9 +366,8 @@ class ColorPicker(Themable, Widget):
         label.left = shades.right + 1
 
     def update_theme(self):
-        ct = self.color_theme
+        primary = self.color_theme.primary
 
-        self.background_color_pair = ct.primary_color_pair
-
-        self.label.default_color_pair = ct.primary_dark_color_pair
-        self.label.colors[:] = ct.primary_dark_color_pair
+        self.background_color_pair = primary
+        self.label.default_color_pair = primary
+        self.label.colors[:] = primary

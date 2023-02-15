@@ -9,6 +9,12 @@ nurses\_2.widgets.text\_widget\_data\_structures
 
    
    
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      add_text
+   
    
 
    
@@ -17,7 +23,7 @@ nurses\_2.widgets.text\_widget\_data\_structures
 
    .. autosummary::
    
-      CanvasView
+      Border
    
    
 

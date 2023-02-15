@@ -1,30 +1,97 @@
-"""
-A text particle field.
+import asyncio
 
-A particle field specializes in handling many single "pixel" children.
-"""
-import numpy as np
+from collections.abc import Callable, Hashable
 
-from ..widget import Widget
+from ..colors import Color, GREEN, BLACK
+from ..data_structures import Point
+from .behaviors.toggle_button_behavior import ToggleButtonBehavior, ToggleState
+from .text_widget import TextWidget, add_text
+from .widget import Widget
 
-__all__ = "TextParticleField",
+HORIZONTAL_BLOCKS = "▊▋▌▍▎▏"
+DARK_GREY = Color.from_hex("333333")
+LIGHT_GREY = Color.from_hex("666666")
 
 
-class TextParticleField(Widget):
+class _AnimatedToggle(ToggleButtonBehavior, TextWidget):
+    def __init__(self, group, allow_no_selection, toggle_state, always_release, bg_color):
+        super().__init__(
+            size=(3, 4),
+            pos_hint=(.5, .5),
+            anchor="center",
+            group=group,
+            allow_no_selection=allow_no_selection,
+            toggle_state=toggle_state,
+            always_release=always_release,
+        )
+        self._animation_task = asyncio.create_task(asyncio.sleep(0))  # dummy task
+
+        self.colors[..., 3:] = bg_color
+        self.colors[..., :3] = DARK_GREY
+        self.colors[1, 1, 3:] = DARK_GREY
+
+        if self.toggle_state is ToggleState.ON:
+            add_text(self.canvas, "▄▄▄▄\n█▊▊█\n▀▀▀▀")
+            self.colors[1, 1, :3] = GREEN
+            self.colors[1, 2, 3:] = GREEN
+            self._animation_progess = 0
+        else:
+            add_text(self.canvas, "▄▄▄▄\n█▏▏█\n▀▀▀▀")
+            self.colors[1, 1, :3] = LIGHT_GREY
+            self.colors[1, 2, 3:] = LIGHT_GREY
+            self._animation_progess = 5
+
+    def on_remove(self):
+        self._animation_task.cancel()
+
+    async def _animate_toggle(self):
+        if self.toggle_state is ToggleState.ON:
+            self.colors[1, 1, :3] = GREEN
+            self.colors[1, 2, 3:] = GREEN
+            r = range(self._animation_progess - 1, -1, -1)
+        else:
+            self.colors[1, 1, :3] = LIGHT_GREY
+            self.colors[1, 2, 3:] = LIGHT_GREY
+            r = range(self._animation_progess + 1, 6)
+
+        for i in r:
+            self._animation_progess = i
+            self.canvas["char"][1, 1:3] = HORIZONTAL_BLOCKS[i]
+            await asyncio.sleep(.05)
+
+        self.parent.callback(self.toggle_state)
+
+    def on_toggle(self):
+        if not hasattr(self, "_animation_task"):
+            # Initializing...
+            return
+        self._animation_task.cancel()
+        self._animation_task = asyncio.create_task(self._animate_toggle())
+
+
+class FlatToggle(Widget):
     """
-    A text particle field.
+    An animated toggle button widget.
 
     Parameters
     ----------
-    particle_positions : np.ndarray | None=None, default: None
-        Positions of particles. Expect int array with shape `N, 2`.
-    particle_chars : np.ndarray | None=None, default: None
-        Characters of alphas. Expect object array with shape `N,`.
-    particle_color_pairs : np.ndarray | None=None, default: None
-        Color pairs of particles. Expect uint8 array with shape `N, 6`.
-    particle_properties : dict[str, np.ndarray]=None, default: None
-        Additional particle properties.
-    size : Size, default: Size(10, 10)
+    callback : Callable[[ToggleState], None], default: lambda state: None
+        Called when toggle state changes. The new state is provided as first argument.
+    toggle_background_color: Color, default: BLACK
+        Background color of toggle.
+    group : None | Hashable, default: None
+        If a group is provided, only one button in a group can be in the "on" state.
+    allow_no_selection : bool, default: False
+        If a group is provided, setting this to True allows no selection, i.e.,
+        every button can be in the "off" state.
+    toggle_state : ToggleState, default: ToggleState.OFF
+        Initial toggle state of button. If button is in a group and :attr:`allow_no_selection`
+        is `False` this value will be ignored if all buttons would be "off".
+    always_release : bool, default: False
+        Whether a mouse up event outside the button will trigger it.
+        size : Size, default: Size(10, 10)
+        Size of widget.
+    size : Size, default: Size(3, 4)
         Size of widget.
     pos : Point, default: Point(0, 0)
         Position of upper-left corner in parent.
@@ -63,16 +130,10 @@ class TextParticleField(Widget):
 
     Attributes
     ----------
-    nparticles : int
-        Number of particles in particle field.
-    particle_positions : np.ndarray
-        Positions of particles.
-    particle_chars : np.ndarray
-        Characters of alphas.
-    particle_color_pairs : np.ndarray
-        Color pairs of particles.
-    particle_properties : dict[str, np.ndarray]
-        Additional particle properties.
+    callback : Callable[[ToggleState], None]
+        Toggle button callback.
+    toggle_background: Color
+        Background color of toggle.
     size : Size
         Size of widget.
     height : int
@@ -146,8 +207,8 @@ class TextParticleField(Widget):
     -------
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -189,53 +250,33 @@ class TextParticleField(Widget):
     """
     def __init__(
         self,
-        particle_positions: np.ndarray | None=None,
-        particle_chars: np.ndarray | None=None,
-        particle_color_pairs: np.ndarray | None=None,
-        particle_properties: dict[str, np.ndarray]=None,
+        *,
+        size: Point=Point(3, 4),
+        callback: Callable[[ToggleState], None]=lambda state: None,
+        toggle_background_color: Color=BLACK,
+        group: None | Hashable=None,
+        allow_no_selection: bool=False,
+        toggle_state: ToggleState=ToggleState.OFF,
+        always_release: bool=False,
         **kwargs
     ):
-        super().__init__(**kwargs)
+        super().__init__(size=size, **kwargs)
 
-        if particle_positions is None:
-            self.particle_positions = np.zeros((0, 2), dtype=int)
-        else:
-            self.particle_positions = particle_positions
+        self.callback = callback
 
-        if particle_chars is None:
-            self.particle_chars = np.full(len(self.particle_positions), " ", dtype=object)
-        else:
-            self.particle_chars = particle_chars
-
-        if particle_color_pairs is None:
-            self.particle_color_pairs = np.zeros((len(self.particle_positions), 6), dtype=np.uint8)
-        else:
-            self.particle_color_pairs = particle_color_pairs
-
-        if particle_properties is None:
-            self.particle_properties = {}
-        else:
-            self.particle_properties = particle_properties
+        self._toggle = _AnimatedToggle(
+            group=group,
+            allow_no_selection=allow_no_selection,
+            toggle_state=toggle_state,
+            always_release=always_release,
+            bg_color=toggle_background_color,
+        )
+        self.add_widget(self._toggle)
 
     @property
-    def nparticles(self) -> int:
-        """
-        Number of particles in particle field.
-        """
-        return len(self.particle_positions)
+    def toggle_background_color(self) -> Color:
+        return Color(*self._toggle[0, 0, 3:])
 
-    def render(self, canvas_view, colors_view, source: tuple[slice, slice]):
-        vert_slice, hori_slice = source
-        t = vert_slice.start
-        h = vert_slice.stop - t
-        l = hori_slice.start
-        w = hori_slice.stop - l
-
-        pos = self.particle_positions - (t, l)
-        where_inbounds = np.nonzero((((0, 0) <= pos) & (pos < (h, w))).all(axis=1))
-        local_ys, local_xs = pos[where_inbounds].T
-
-        canvas_view[local_ys, local_xs] = self.particle_chars[where_inbounds]
-        colors_view[local_ys, local_xs] = self.particle_color_pairs[where_inbounds]
-
-        self.render_children(source, canvas_view, colors_view)
+    @toggle_background_color.setter
+    def toggle_background_color(self, color: Color):
+        self._toggle.colors[[0, -1], :, 3:] = color

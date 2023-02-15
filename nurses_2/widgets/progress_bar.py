@@ -1,17 +1,14 @@
 """
 A progress bar widget.
 """
-import numpy as np
-
 from ..clamp import clamp
-from ..colors import gradient, ColorPair
 from .behaviors.themable import Themable
 from .text_widget import TextWidget
+from .widget import subscribable
 
 FULL_BLOCK = "█"
 VERTICAL_BLOCKS = " ▁▂▃▄▅▆▇"
 HORIZONTAL_BLOCKS = " ▏▎▍▌▋▊▉"
-GRAD_LEN = 7
 
 
 class ProgressBar(Themable, TextWidget):
@@ -75,17 +72,14 @@ class ProgressBar(Themable, TextWidget):
         The array of characters for the widget.
     colors : numpy.ndarray
         The array of color pairs for each character in :attr:`canvas`.
-    default_char : str, default: " "
+    default_char : str
         Default background character.
-    default_color_pair : ColorPair, default: WHITE_ON_BLACK
+    default_color_pair : ColorPair
         Default color pair of widget.
-    default_fg_color: Color
+    default_fg_color : Color
         The default foreground color.
-    default_bg_color: Color
+    default_bg_color : Color
         The default background color.
-    get_view: CanvasView
-        Return a :class:`nurses_2.widgets.text_widget_data_structures.CanvasView`
-        of the underlying :attr:`canvas`.
     size : Size
         Size of widget.
     height : int
@@ -158,18 +152,17 @@ class ProgressBar(Themable, TextWidget):
     Methods
     -------
     update_theme:
-        Repaint the widget with a new theme. This should be called at:
-        least once when a widget is initialized.
+        Paint the widget with current theme.
     add_border:
         Add a border to the widget.
     normalize_canvas:
-        Add zero-width characters after each full-width character.
-    add_text:
-        Add text to the canvas.
+        Ensure column width of text in the canvas is equal to widget width.
+    add_str:
+        Add a single line of text to the canvas.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -211,17 +204,15 @@ class ProgressBar(Themable, TextWidget):
     """
     def __init__(self, is_horizontal: bool=True, **kwargs):
         super().__init__(**kwargs)
-
         self._is_horizontal = is_horizontal
         self._progress = 0.0
-
-        self.update_theme()
 
     @property
     def progress(self) -> float:
         return self._progress
 
     @progress.setter
+    @subscribable
     def progress(self, progress: float):
         self._progress = clamp(progress, 0.0, 1.0)
         self._update_canvas()
@@ -239,60 +230,25 @@ class ProgressBar(Themable, TextWidget):
         self._update_canvas()
 
     def update_theme(self):
-        self._fill = ColorPair.from_colors(
-            self.color_theme.secondary_bg,
-            self.color_theme.primary_bg,
-        )
-
-        self._head = np.array(
-            gradient(
-                self.color_theme.primary_color_pair,
-                self._fill,
-                GRAD_LEN,
-            )
-        )
-
         self._update_canvas()
 
     def _update_canvas(self):
+        self.colors[:] = self.color_theme.button_normal
+
         if self.is_horizontal:
             fill, partial = divmod(self.progress * self.width, 1)
             fill_length, partial_index = int(fill), int(len(HORIZONTAL_BLOCKS) * partial)
-            self.canvas[:, :fill_length] = FULL_BLOCK
-            self.colors[:] = self._fill
+            self.canvas["char"][:, :fill_length] = FULL_BLOCK
 
             if fill_length < self.width:
-                self.canvas[:, fill_length] = HORIZONTAL_BLOCKS[partial_index]
-                self.canvas[:, fill_length + 1:] = HORIZONTAL_BLOCKS[0]
-
-                if fill_length + 1 <= GRAD_LEN:
-                    self.colors[:, fill_length::-1] = self._head[:fill_length + 1]
-                else:
-                    self.colors[:, fill_length:fill_length - GRAD_LEN:-1] = self._head
-            else:
-                if self.width <= GRAD_LEN:
-                    self.colors[:, ::-1] = self._head[:self.width]
-                else:
-                    self.colors[:, :-GRAD_LEN - 1:-1] = self._head
-
+                self.canvas["char"][:, fill_length] = HORIZONTAL_BLOCKS[partial_index]
+                self.canvas["char"][:, fill_length + 1:] = HORIZONTAL_BLOCKS[0]
         else:
             fill, partial = divmod(self.progress * self.height, 1)
             fill_length, partial_index = int(fill), int(len(VERTICAL_BLOCKS) * partial)
-            canvas = self.canvas[::-1]
-            canvas[:fill_length] = FULL_BLOCK
-            colors = self.colors[::-1]
-            colors[:] = self._fill
+            chars = self.canvas["char"][::-1]
+            chars[:fill_length] = FULL_BLOCK
 
             if fill_length < self.height:
-                canvas[fill_length: fill_length + 1] = VERTICAL_BLOCKS[partial_index]
-                canvas[fill_length + 1:] = VERTICAL_BLOCKS[0]
-
-                if fill_length + 1 <= GRAD_LEN:
-                    colors[fill_length::-1] = self._head[:fill_length + 1, None]
-                else:
-                    colors[fill_length:fill_length - GRAD_LEN:-1] = self._head[:, None]
-            else:
-                if self.height <= GRAD_LEN:
-                    colors[::-1] = self._head[:self.height, None]
-                else:
-                    colors[:-GRAD_LEN - 1:-1] = self._head[:, None]
+                chars[fill_length: fill_length + 1] = VERTICAL_BLOCKS[partial_index]
+                chars[fill_length + 1:] = VERTICAL_BLOCKS[0]

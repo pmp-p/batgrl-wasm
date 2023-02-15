@@ -38,7 +38,7 @@ class ToggleButton(Themable, ToggleButtonBehavior, Widget):
         is `False` this value will be ignored if all buttons would be "off".
     always_release : bool, default: False
         Whether a mouse up event outside the button will trigger it.
-        size : Size, default: Size(10, 10)
+    size : Size, default: Size(10, 10)
         Size of widget.
     pos : Point, default: Point(0, 0)
         Position of upper-left corner in parent.
@@ -163,8 +163,7 @@ class ToggleButton(Themable, ToggleButtonBehavior, Widget):
     Methods
     -------
     update_theme:
-        Repaint the widget with a new theme. This should be called at
-        least once when a widget is initialized.
+        Paint the widget with current theme.
     update_off:
         Paint the "off" state.
     update_on:
@@ -181,8 +180,8 @@ class ToggleButton(Themable, ToggleButtonBehavior, Widget):
         Triggered when a button is released.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -227,7 +226,7 @@ class ToggleButton(Themable, ToggleButtonBehavior, Widget):
         *,
         background_char=" ",
         label: str="",
-        callback: Callable[[ToggleState], None]=lambda: None,
+        callback: Callable[[ToggleState], None]=lambda state: None,
         **kwargs,
     ):
         self.normal_color_pair = (0, ) * 6  # Temporary assignment
@@ -242,15 +241,7 @@ class ToggleButton(Themable, ToggleButtonBehavior, Widget):
 
         self.label = label
 
-        self.update_theme()
-
     def update_theme(self):
-        ct = self.color_theme
-
-        self.normal_color_pair = ct.primary_color_pair
-        self.hover_color_pair = ct.primary_light_color_pair
-        self.down_color_pair = ct.secondary_color_pair
-
         match self.state:
             case ButtonState.NORMAL:
                 self.update_normal()
@@ -280,17 +271,17 @@ class ToggleButton(Themable, ToggleButtonBehavior, Widget):
 
         text = prefix + label
         self._label_widget.size = 1, wcswidth(text)
-        self._label_widget.update_geometry()
-        self._label_widget.add_text(text)
+        self._label_widget.apply_hints()
+        self._label_widget.add_str(text)
 
     def update_hover(self):
-        self.background_color_pair = self._label_widget.colors[:] = self.hover_color_pair
+        self.background_color_pair = self._label_widget.colors[:] = self.color_theme.button_hover
 
     def update_down(self):
-        self.background_color_pair = self._label_widget.colors[:] = self.down_color_pair
+        self.background_color_pair = self._label_widget.colors[:] =  self.color_theme.button_press
 
     def update_normal(self):
-        self.background_color_pair = self._label_widget.colors[:] = self.normal_color_pair
+        self.background_color_pair = self._label_widget.colors[:] = self.color_theme.button_normal
 
     def on_toggle(self):
         if self._label_widget.parent is not None:  # This will be false during initialization.

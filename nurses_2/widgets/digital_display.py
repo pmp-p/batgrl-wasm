@@ -224,17 +224,14 @@ class DigitalDisplay(TextWidget):
         The array of characters for the widget.
     colors : numpy.ndarray
         The array of color pairs for each character in :attr:`canvas`.
-    default_char : str, default: " "
+    default_char : str
         Default background character.
-    default_color_pair : ColorPair, default: WHITE_ON_BLACK
+    default_color_pair : ColorPair
         Default color pair of widget.
-    default_fg_color: Color
+    default_fg_color : Color
         The default foreground color.
-    default_bg_color: Color
+    default_bg_color : Color
         The default background color.
-    get_view: CanvasView
-        Return a :class:`nurses_2.widgets.text_widget_data_structures.CanvasView`
-        of the underlying :attr:`canvas`.
     size : Size
         Size of widget.
     height : int
@@ -311,13 +308,13 @@ class DigitalDisplay(TextWidget):
     add_border:
         Add a border to the widget.
     normalize_canvas:
-        Add zero-width characters after each full-width character.
-    add_text:
-        Add text to the canvas.
+        Ensure column width of text in the canvas is equal to widget width.
+    add_str:
+        Add a single line of text to the canvas.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -386,15 +383,15 @@ class DigitalDisplay(TextWidget):
         self.on_color_pair = on_color_pair
 
         self._display = TextWidget(size=(7, 8), default_char=self.default_char)
-        canvas = self._display.canvas
+        chars = self._display.canvas["char"]
 
-        canvas[[0, 6], 1: 6] = canvas[3, 1: 3] = canvas[3, 4: 6] = "━"
-        canvas[1: 3,  [0, 3, 6]] = canvas[4: 6, [0, 3, 6]] = "┃"
-        canvas[(1, 2, 4, 5), (1, 2, 4, 5)] = "\\"
-        canvas[(1, 2, 4, 5), (5, 4, 2, 1)] = "/"
-        canvas[6, 7] = "●"
+        chars[[0, 6], 1: 6] = chars[3, 1: 3] = chars[3, 4: 6] = "━"
+        chars[1: 3,  [0, 3, 6]] = chars[4: 6, [0, 3, 6]] = "┃"
+        chars[(1, 2, 4, 5), (1, 2, 4, 5)] = "\\"
+        chars[(1, 2, 4, 5), (5, 4, 2, 1)] = "/"
+        chars[6, 7] = "●"
 
-        self._where_segments = canvas != self.default_char
+        self._where_segments = chars != self.default_char
         self._display.colors[self._where_segments] = off_color_pair
 
         self.add_widget(self._display)

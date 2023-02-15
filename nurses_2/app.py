@@ -49,6 +49,8 @@ class App(ABC):
         Record the terminal in asciicast v2 file format if a path is provided.
         Resizing the terminal while recording isn't currently supported by
         the asciicast format -- doing so will corrupt the recording.
+    log_file : Path | None, default: None
+        If provided, stderr is written to this path.
 
     Attributes
     ----------
@@ -67,6 +69,8 @@ class App(ABC):
         Color theme used for :class:`nurses_2.widgets.behaviors.themable.Themable` widgets.
     asciicast_path : Path | None
         Path where asciicast recording will be saved.
+    log_file : Path | None
+        Path where stderr is saved.
     root : _Root | None
         Root of widget tree.
     children : list[Widget]
@@ -96,6 +100,7 @@ class App(ABC):
         render_interval: float=0.0,
         color_theme: ColorTheme=DEFAULT_COLOR_THEME,
         asciicast_path: Path | None=None,
+        log_file: Path | None=None,
     ):
         self.root = None
 
@@ -106,6 +111,7 @@ class App(ABC):
         self.render_interval = render_interval
         self.color_theme = color_theme
         self.asciicast_path = asciicast_path
+        self.log_file = log_file
 
     @property
     def color_theme(self) -> ColorTheme:
@@ -144,7 +150,11 @@ class App(ABC):
             except asyncio.CancelledError:
                 pass
             finally:
-                print(defer_stderr.getvalue(), file=sys.stderr, end="")
+                if self.log_file:
+                    with open(self.log_file, "w") as log:
+                        print(defer_stderr.getvalue(), file=log, end="")
+                else:
+                  print(defer_stderr.getvalue(), file=sys.stderr, end="")
 
     def exit(self):
         """

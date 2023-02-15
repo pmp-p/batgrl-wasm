@@ -11,8 +11,8 @@ from .widget import Widget
 from .widget_data_structures import *
 
 __all__ = (
+    "add_text",
     "Anchor",
-    "CanvasView",
     "ColorPair",
     "Easing",
     "Point",
@@ -76,17 +76,14 @@ class TextWidget(Widget):
         The array of characters for the widget.
     colors : numpy.ndarray
         The array of color pairs for each character in :attr:`canvas`.
-    default_char : str, default: " "
+    default_char : str
         Default background character.
-    default_color_pair : ColorPair, default: WHITE_ON_BLACK
+    default_color_pair : ColorPair
         Default color pair of widget.
-    default_fg_color: Color
+    default_fg_color : Color
         The default foreground color.
-    default_bg_color: Color
+    default_bg_color : Color
         The default background color.
-    get_view: CanvasView
-        Return a :class:`nurses_2.widgets.text_widget_data_structures.CanvasView`
-        of the underlying :attr:`canvas`.
     size : Size
         Size of widget.
     height : int
@@ -161,13 +158,13 @@ class TextWidget(Widget):
     add_border:
         Add a border to the widget.
     normalize_canvas:
-        Add zero-width characters after each full-width character.
-    add_text:
-        Add text to the canvas.
+        Ensure column width of text in the canvas is equal to widget width.
+    add_str:
+        Add a single line of text to the canvas.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -217,7 +214,7 @@ class TextWidget(Widget):
 
         size = self.size
 
-        self.canvas = np.full(size, default_char, dtype=object)
+        self.canvas = np.full(size, style_char(default_char))
         self.colors = np.full((*size, 6), default_color_pair, dtype=np.uint8)
 
         self.default_char = default_char
@@ -235,7 +232,7 @@ class TextWidget(Widget):
         copy_h = min(old_h, h)
         copy_w = min(old_w, w)
 
-        self.canvas = np.full((h, w), self.default_char, dtype=object)
+        self.canvas = np.full((h, w), style_char(self.default_char))
         self.colors = np.full((h, w, 6), self.default_color_pair, dtype=np.uint8)
 
         self.canvas[:copy_h, :copy_w] = old_canvas[:copy_h, :copy_w]
@@ -260,41 +257,34 @@ class TextWidget(Widget):
         """
         return wcswidth(char)
 
-    def add_border(
-        self,
-        tl: str="┌",
-        tr: str="┐",
-        bl: str="└",
-        br: str="┘",
-        v: str="│",
-        h: str="─",
-        color_pair: ColorPair | None=None,
-    ):
+    def add_border(self, style: Border=Border.LIGHT, bold: bool= False, color_pair: ColorPair | None=None,):
         """
-        Add a border. Default border characters are light box-drawing characters.
+        Add a text border.
 
         Parameters
         ----------
-        tl : str, default: "┌"
-            Top left character.
-        tr : str, default: "┐"
-            Top right character.
-        bl : str, default: "└"
-            Bottom left character.
-        br : str, default: "┘"
-            Bottom right character.
-        v : str, default: "│"
-            Vertical character.
-        h : str, default: "─"
-            Horizontal character.
+        style : Border, default: Border.LIGHT
+            Style of border. Default style uses light box-drawing characters.
+        bold : bool, default: False
+            Whether the border is bold.
         color_pair : ColorPair | None, default: None
             Border color pair if not None.
         """
-        canvas = self.canvas
+        BORDER_STYLES = dict(
+            light=  "┌┐│─└┘",
+            heavy=  "┏┓┃━┗┛",
+            double= "╔╗║═╚╝",
+            curved= "╭╮│─╰╯",
+            ascii=  "++|-++",
+        )
+        tl, tr, v, h, bl, br = BORDER_STYLES[style]
 
-        canvas[(0, 0, -1, -1), (0, -1, 0, -1)] = tl, tr, bl, br
-        canvas[1: -1, [0, -1]] = v
-        canvas[[0, -1], 1: -1] = h
+        canvas = self.canvas
+        canvas["char"][(0, 0, -1, -1), (0, -1, 0, -1)] = tl, tr, bl, br
+        canvas["bold"][(0, 0, -1, -1), (0, -1, 0, -1)] = bold
+        canvas[["italic", "underline", "strikethrough"]][(0, 0, -1, -1), (0, -1, 0, -1)] = False
+        canvas[1: -1, [0, -1]] = style_char(v, bold=bold)
+        canvas[[0, -1], 1: -1] = style_char(h, bold=bold)
 
         if color_pair is not None:
             self.colors[[0, -1]] = color_pair
@@ -302,39 +292,66 @@ class TextWidget(Widget):
 
     def normalize_canvas(self):
         """
-        Add zero-width characters after each full-width character.
+        Ensure column width of text in the canvas is equal to widget width.
 
-        Raises
-        ------
-        ValueError
-            If full-width character is followed by non-default character.
+        Rendering issues can occur when column width of text exceeds widget width.
+        To fix this, 0-width characters are replaced with the default character, then
+        empty characters are placed after each full-width character.
+
+        Text added with `add_str` or `add_text` is already normalized.
         """
-        canvas = self.canvas
-        default_char = self.default_char
+        char_widths = self.character_width(self.canvas["char"])
+        self.canvas[char_widths == 0] = style_char(self.default_char)
+        self.canvas[:, -1][char_widths[:, -1] == 2] = style_char(self.default_char)
+        for x in range(self.width - 1):
+            self.canvas[:, x + 1][self.character_width(self.canvas["char"][:, x]) == 2] = style_char("")
 
-        char_widths = self.character_width(self.canvas)
-
-        canvas[char_widths == 0] = default_char  # Zero-width characters are replaced with the default character.
-
-        where_fullwidth = np.argwhere(char_widths == 2)
-        for y, x in where_fullwidth:
-            if x == self.width - 1:
-                raise ValueError("can't normalize, full-width character on edge")
-
-            if canvas[y, x + 1] != default_char:
-                raise ValueError("can't normalize, full-width character followed by non-default char")
-
-            canvas[y, x + 1] = chr(0x200B)  # Zero-width space
-
-    @property
-    def get_view(self) -> CanvasView:
+    def add_str(
+        self,
+        str: str,
+        pos: Point=Point(0, 0),
+        *,
+        bold: bool=False,
+        italic: bool=False,
+        underline: bool=False,
+        strikethrough: bool=False,
+        truncate_str: bool=False,
+    ):
         """
-        Return a :class:`nurses_2.widgets.text_data_structures.CanvasView` that simplifies
-        adding text to a view of :attr:`canvas`.
-        """
-        return CanvasView(self.canvas)
+        Add a single line of text to the canvas at position `pos`.
 
-    add_text = CanvasView.add_text
+        Parameters
+        ----------
+        str : str
+            A single line of text to add to canvas.
+        pos : Point, default: Point(0, 0)
+            Position of first character of string. Negative coordinates position
+            from the right or bottom of canvas (like negative indices).
+        bold : bool, default: False
+            Whether text is bold.
+        italic : bool, default: False
+            Whether text is italic.
+        underline : bool, default: False
+            Whether text is underlined.
+        strikethrough : bool, default: False
+            Whether text is strikethrough.
+        truncate_str : bool, default: False
+            If false, an `IndexError` is raised if the text would not fit on canvas.
+
+        See Also
+        --------
+        text_widget.add_text : Add multiple lines of text on an arbitrary `numpy.ndarray` or view.
+        """
+        y, x = pos
+        add_text(
+            self.canvas[y, x:],
+            str,
+            bold=bold,
+            italic=italic,
+            underline=underline,
+            strikethrough=strikethrough,
+            truncate_text=truncate_str,
+        )
 
     def render(self, canvas_view, colors_view, source: tuple[slice, slice]):
         """
@@ -342,7 +359,7 @@ class TextWidget(Widget):
         """
         if self.is_transparent:
             source_view = self.canvas[source]
-            visible = np.isin(source_view, (" ", "⠀"), invert=True)  # Whitespace isn't painted if transparent.
+            visible = np.isin(source_view["char"], (" ", "⠀"), invert=True)  # Whitespace isn't painted if transparent.
 
             canvas_view[visible] = source_view[visible]
             colors_view[visible] = self.colors[source][visible]

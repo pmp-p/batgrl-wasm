@@ -1,7 +1,7 @@
 """
 A menu widget.
 """
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Iterable
 from inspect import signature
 from typing import Optional, Union
 
@@ -16,6 +16,7 @@ from .widget import Widget, Anchor, Point
 
 __all__ = (
     "Menu",
+    "MenuBar",
     "MenuItem",
 )
 
@@ -47,10 +48,6 @@ class MenuItem(Themable, ToggleButtonBehavior, Widget):
     item_callback : Callable[[], None] | Callable[[ToggleState], None], default: lambda: None
         Callback when item is selected. For toggle items, the callable should have a
         single argument that will be the current state of the item.
-    label : str, default: ""
-        Toggle button label.
-    callback : Callable[[ToggleState], None], default: lambda: None
-        Called when toggle state changes. The new state is provided as first argument.
     group : None | Hashable, default: None
         If a group is provided, only one button in a group can be in the "on" state.
     allow_no_selection : bool, default: False
@@ -100,13 +97,13 @@ class MenuItem(Themable, ToggleButtonBehavior, Widget):
 
     Attributes
     ----------
-    left_label : str, default: ""
+    left_label : str
         Left label of menu item.
-    right_label : str, default: ""
+    right_label : str
         Right label of menu item.
-    item_disabled : bool, default: False
+    item_disabled : bool
         If true, item will not be selectable in menu.
-    item_callback : Callable[[], None] | Callable[[ToggleState], None], default: lambda: None
+    item_callback : Callable[[], None] | Callable[[ToggleState], None]
         Callback when item is selected. For toggle items, the callable should have a
         single argument that will be the current state of the item.
     submenu: Menu | None
@@ -197,8 +194,7 @@ class MenuItem(Themable, ToggleButtonBehavior, Widget):
     Methods
     -------
     update_theme:
-        Repaint the widget with a new theme. This should be called at:
-        least once when a widget is initialized.
+        Paint the widget with current theme.
     update_off:
         Paint the "off" state.
     update_on:
@@ -215,8 +211,8 @@ class MenuItem(Themable, ToggleButtonBehavior, Widget):
         Triggered when a button is released.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -270,14 +266,14 @@ class MenuItem(Themable, ToggleButtonBehavior, Widget):
         self._item_disabled = item_disabled
 
         self.left_label = TextWidget(size=(1, wcswidth(left_label)))
-        self.left_label.add_text(left_label)
+        self.left_label.add_str(left_label)
 
         self.right_label = TextWidget(
             size=(1, wcswidth(right_label)),
             pos_hint=(None, 1.0),
             anchor=Anchor.RIGHT_CENTER,
         )
-        self.right_label.add_text(right_label)
+        self.right_label.add_str(right_label)
 
         self.submenu = submenu
 
@@ -287,7 +283,18 @@ class MenuItem(Themable, ToggleButtonBehavior, Widget):
 
         self.item_callback = item_callback
         self.update_off()
-        self.update_theme()
+
+    def _repaint(self):
+        if self.item_disabled:
+            color = self.color_theme.item_disabled
+        elif self.state is ButtonState.NORMAL:
+            color = self.color_theme.primary
+        elif self.state is ButtonState.HOVER or self.state is ButtonState.DOWN:
+            color = self.color_theme.item_hover
+
+        self.background_color_pair = color
+        self.left_label.colors[:] = color
+        self.right_label.colors[:] = color
 
     @property
     def item_disabled(self) -> bool:
@@ -296,56 +303,34 @@ class MenuItem(Themable, ToggleButtonBehavior, Widget):
     @item_disabled.setter
     def item_disabled(self, item_disabled: bool):
         self._item_disabled = item_disabled
-        self.update_theme()
+        self._repaint()
 
     def update_theme(self):
-        ct = self.color_theme
-
-        self.normal_color_pair = ct.primary_color_pair
-        self.hover_color_pair = ct.primary_light_color_pair
-        self.disabled_color_pair = ct.primary_dark_color_pair
-
-        if self.state is ButtonState.NORMAL:
-            self.update_normal()
-        else:
-            self.update_hover()
-
-    def _update_color_pair(self, color):
-        if self.item_disabled:
-            color = self.disabled_color_pair
-
-        self.background_color_pair = color
-        self.left_label.colors[:] = color
-        self.right_label.colors[:] = color
+        self._repaint()
 
     def update_hover(self):
-        self._update_color_pair(self.hover_color_pair)
+        self._repaint()
 
         index = self.parent.children.index(self)
-        if self.parent._current_selection not in (-1, index):
+        if self.parent._current_selection not in {-1, index}:
             self.parent.close_submenus()
-            self.parent.children[self.parent._current_selection]._normal()
+            if self.parent._current_selection != -1:
+                self.parent.children[self.parent._current_selection]._normal()
 
         self.parent._current_selection = index
-
         if self.submenu is not None:
             self.submenu.open_menu()
 
     def update_normal(self):
+        self._repaint()
         if self.parent is None:
-            self._update_color_pair(self.normal_color_pair)
             return
 
         if self.submenu is None or not self.submenu.is_enabled:
-            pass
+            if self.parent._current_selection == self.parent.children.index(self):
+                self.parent._current_selection = -1
         elif not self.submenu.collides_point(self._last_mouse_pos):
             self.submenu.close_menu()
-        else:
-            return
-
-        self._update_color_pair(self.normal_color_pair)
-        if self.parent._current_selection == self.parent.children.index(self):
-            self.parent._current_selection = -1
 
     def on_mouse(self, mouse_event):
         self._last_mouse_pos = mouse_event.position
@@ -365,11 +350,11 @@ class MenuItem(Themable, ToggleButtonBehavior, Widget):
 
     def update_off(self):
         if self.item_callback is not None and nargs(self.item_callback) == 1:
-            self.left_label.canvas[0, 1] = CHECK_OFF
+            self.left_label.canvas["char"][0, 1] = CHECK_OFF
 
     def update_on(self):
         if self.item_callback is not None and nargs(self.item_callback) == 1:
-            self.left_label.canvas[0, 1] = CHECK_ON
+            self.left_label.canvas["char"][0, 1] = CHECK_ON
 
     def on_toggle(self):
         if self.item_callback is not None and nargs(self.item_callback) == 1:
@@ -453,9 +438,9 @@ class Menu(GridLayout):
 
     Attributes
     ----------
-    close_on_release : bool, default: True
+    close_on_release : bool
         If true, close the menu when an item is selected.
-    close_on_click : bool, default: True
+    close_on_click : bool
         If true, close the menu when a click doesn't collide with it.
     grid_rows : int
         Number of rows.
@@ -557,8 +542,8 @@ class Menu(GridLayout):
         Return index of widget in :attr:`children` at position `row, col` in the grid.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -613,6 +598,7 @@ class Menu(GridLayout):
         self._parent_menu = None
         self._current_selection = -1
         self._submenus = [ ]
+        self._menu_button = None
 
     def open_menu(self):
         """
@@ -626,6 +612,10 @@ class Menu(GridLayout):
         """
         self.is_enabled = False
         self._current_selection = -1
+
+        if self._menu_button is not None and self._menu_button.toggle_state is ToggleState.ON:
+            self._menu_button._toggle_state = ToggleState.OFF
+            self._menu_button.update_off()
 
         self.close_submenus()
 
@@ -746,9 +736,9 @@ class Menu(GridLayout):
         cls,
         menu: MenuDict,
         pos: Point=Point(0, 0),
-        close_on_release=True,
-        close_on_click=True,
-    ):
+        close_on_release: bool=True,
+        close_on_click: bool=True,
+    ) -> Iterator[Widget]:
         """
         Create and yield menus from a dict of dicts. Callables should either have no arguments
         for a normal menu item, or one argument for a toggle menu item.
@@ -757,6 +747,12 @@ class Menu(GridLayout):
         ----------
         menu : MenuDict
             The menu as a dict of dicts.
+        pos : Point, default: Point(0, 0)
+            Position of menu.
+        close_on_release : bool, default: True
+            If true, close the menu when an item is selected.
+        close_on_click : bool, default: True
+            If true, close the menu when a click doesn't collide with it.
         """
         height = len(menu)
         width = max(
@@ -811,3 +807,308 @@ class Menu(GridLayout):
             menu_widget.add_widget(menu_item)
 
         yield menu_widget
+
+
+class _MenuButton(Themable, ToggleButtonBehavior, TextWidget):
+    def __init__(self, label, menu, group):
+        super().__init__(size=(1, wcswidth(label) + 2), group=group, allow_no_selection=True)
+        self.add_str(f" {label} ")
+        self._menu = menu
+
+    def _repaint(self):
+        if self.state is not ButtonState.NORMAL or self.toggle_state is ToggleState.ON:
+            color_pair = self.color_theme.item_hover
+        else:
+            color_pair = self.color_theme.primary
+
+        self.colors[:] = color_pair
+        self.default_color_pair = color_pair
+
+    def update_theme(self):
+        self._repaint()
+
+    def update_down(self):
+        self._repaint()
+
+    def update_normal(self):
+        self._repaint()
+
+    def update_hover(self):
+        self._repaint()
+        if self._toggle_groups.get(self.group):
+            self.toggle_state = ToggleState.ON
+
+    def update_on(self):
+        self._repaint()
+
+    def update_off(self):
+        self._repaint()
+
+    def on_toggle(self):
+        if self.toggle_state is ToggleState.ON:
+            self._menu.open_menu()
+        else:
+            self._menu.close_menu()
+
+
+class MenuBar(GridLayout):
+    """
+    A menu bar.
+
+    A menu bar is meant to be constructed with the class method :meth:`from_iterable`.
+    The iterable should be pairs of `(str, MenuDict)` where `MenuDict` is the type
+    used for `Menu.from_dict_of_dicts`.
+
+    Parameters
+    ----------
+    grid_rows : int, default: 1
+        Number of rows.
+    grid_columns : int, default: 1
+        Number of columns.
+    orientation : Orientation, default: Orientation.LR_BT
+        The orientation of the grid. Describes how the grid fills as children are added. The
+        default is left-to-right then top-to-bottom.
+    left_padding : int, default: 0
+        Padding on left side of grid.
+    right_padding : int, default: 0
+        Padding on right side of grid.
+    top_padding : int, default: 0
+        Padding at the top of grid.
+    bottom_padding : int, default: 0
+        Padding at the bottom of grid.
+    horizontal_spacing : int, default: 0
+        Horizontal spacing between children.
+    vertical_spacing : int, default: 0
+        Vertical spacing between children.
+    size : Size, default: Size(10, 10)
+        Size of widget.
+    pos : Point, default: Point(0, 0)
+        Position of upper-left corner in parent.
+    size_hint : SizeHint, default: SizeHint(None, None)
+        Proportion of parent's height and width. Non-None values will have
+        precedent over :attr:`size`.
+    min_height : int | None, default: None
+        Minimum height set due to size_hint. Ignored if corresponding size
+        hint is None.
+    max_height : int | None, default: None
+        Maximum height set due to size_hint. Ignored if corresponding size
+        hint is None.
+    min_width : int | None, default: None
+        Minimum width set due to size_hint. Ignored if corresponding size
+        hint is None.
+    max_width : int | None, default: None
+        Maximum width set due to size_hint. Ignored if corresponding size
+        hint is None.
+    pos_hint : PosHint, default: PosHint(None, None)
+        Position as a proportion of parent's height and width. Non-None values
+        will have precedent over :attr:`pos`.
+    anchor : Anchor, default: Anchor.TOP_LEFT
+        The point of the widget attached to :attr:`pos_hint`.
+    is_transparent : bool, default: False
+        If true, background_char and background_color_pair won't be painted.
+    is_visible : bool, default: True
+        If false, widget won't be painted, but still dispatched.
+    is_enabled : bool, default: True
+        If false, widget won't be painted or dispatched.
+    background_char : str | None, default: None
+        The background character of the widget if not `None` and if the widget
+        is not transparent.
+    background_color_pair : ColorPair | None, default: None
+        The background color pair of the widget if not `None` and if the
+        widget is not transparent.
+
+    Attributes
+    ----------
+    close_on_release : bool
+        If true, close the menu when an item is selected.
+    close_on_click : bool
+        If true, close the menu when a click doesn't collide with it.
+    grid_rows : int
+        Number of rows.
+    grid_columns : int
+        Number of columns.
+    orientation : Orientation
+        The orientation of the grid.
+    left_padding : int
+        Padding on left side of grid.
+    right_padding : int
+        Padding on right side of grid.
+    top_padding : int
+        Padding at the top of grid.
+    bottom_padding : int
+        Padding at the bottom of grid.
+    horizontal_spacing : int
+        Horizontal spacing between children.
+    vertical_spacing : int
+        Vertical spacing between children.
+    size : Size
+        Size of widget.
+    height : int
+        Height of widget.
+    rows : int
+        Alias for :attr:`height`.
+    width : int
+        Width of widget.
+    columns : int
+        Alias for :attr:`width`.
+    pos : Point
+        Position relative to parent.
+    top : int
+        Y-coordinate of position.
+    y : int
+        Y-coordinate of position.
+    left : int
+        X-coordinate of position.
+    x : int
+        X-coordinate of position.
+    bottom : int
+        :attr:`top` + :attr:`height`.
+    right : int
+        :attr:`left` + :attr:`width`.
+    absolute_pos : Point
+        Absolute position on screen.
+    center : Point
+        Center of widget in local coordinates.
+    size_hint : SizeHint
+        Size as a proportion of parent's size.
+    height_hint : float | None
+        Height as a proportion of parent's height.
+    width_hint : float | None
+        Width as a proportion of parent's width.
+    min_height : int
+        Minimum height allowed when using :attr:`size_hint`.
+    max_height : int
+        Maximum height allowed when using :attr:`size_hint`.
+    min_width : int
+        Minimum width allowed when using :attr:`size_hint`.
+    max_width : int
+        Maximum width allowed when using :attr:`size_hint`.
+    pos_hint : PosHint
+        Position as a proportion of parent's size.
+    y_hint : float | None
+        Vertical position as a proportion of parent's size.
+    x_hint : float | None
+        Horizontal position as a proportion of parent's size.
+    anchor : Anchor
+        Determines which point is attached to :attr:`pos_hint`.
+    background_char : str | None
+        Background character.
+    background_color_pair : ColorPair | None
+        Background color pair.
+    parent : Widget | None
+        Parent widget.
+    children : list[Widget]
+        Children widgets.
+    is_transparent : bool
+        True if widget is transparent.
+    is_visible : bool
+        True if widget is visible.
+    is_enabled : bool
+        True if widget is enabled.
+    root : Widget | None
+        If widget is in widget tree, return the root widget.
+    app : App
+        The running app.
+
+    Methods
+    -------
+    open_menu:
+        Open menu.
+    close_menu:
+        Close menu.
+    from_dict_of_dicts:
+        Constructor to create a menu from a dict of dicts. This should be
+        default way of constructing menus.
+    index_at:
+        Return index of widget in :attr:`children` at position `row, col` in the grid.
+    on_size:
+        Called when widget is resized.
+    apply_hints:
+        Apply size and pos hints.
+    to_local:
+        Convert point in absolute coordinates to local coordinates.
+    collides_point:
+        True if point is within widget's bounding box.
+    collides_widget:
+        True if other is within widget's bounding box.
+    add_widget:
+        Add a child widget.
+    add_widgets:
+        Add multiple child widgets.
+    remove_widget:
+        Remove a child widget.
+    pull_to_front:
+        Move to end of widget stack so widget is drawn last.
+    walk_from_root:
+        Yield all descendents of root widget.
+    walk:
+        Yield all descendents (or ancestors if `reverse` is True).
+    subscribe:
+        Subscribe to a widget property.
+    unsubscribe:
+        Unsubscribe to a widget property.
+    on_key:
+        Handle key press event.
+    on_mouse:
+        Handle mouse event.
+    on_paste:
+        Handle paste event.
+    tween:
+        Sequentially update a widget property over time.
+    on_add:
+        Called after a widget is added to widget tree.
+    on_remove:
+        Called before widget is removed from widget tree.
+    prolicide:
+        Recursively remove all children.
+    destroy:
+        Destroy this widget and all descendents.
+    """
+
+    @classmethod
+    def from_iterable(
+        cls,
+        iter: Iterable[tuple[str, MenuDict]],
+        pos: Point=Point(0, 0),
+        close_on_release: bool=True,
+        close_on_click: bool=True,
+    ) -> Iterator[Widget]:
+        """
+        Create and yield a menu bar and menus from an iterable of `tuple[str, MenuDict]`.
+
+        Parameters
+        ----------
+        iter : Iterable[tuple[str, MenuDict]]
+            An iterable of `tuple[str, MenuDict]` from which to create the menu bar and menus.
+        pos : Point, default: Point(0, 0)
+            Position of menu.
+        close_on_release : bool, default: True
+            If true, close the menu when an item is selected.
+        close_on_click : bool, default: True
+            If true, close the menu when a click doesn't collide with it.
+        """
+        menus = list(iter)
+
+        menubar = cls(
+            grid_rows=1,
+            grid_columns=len(menus),
+            size=(1, sum(wcswidth(menu_name) + 2 for menu_name, _ in menus)),
+            pos=pos,
+        )
+
+        y, x = pos
+        for menu_name, menu_dict in menus:
+            for menu in Menu.from_dict_of_dicts(
+                menu_dict,
+                pos=(y + 1, x),
+                close_on_release=close_on_release,
+                close_on_click=close_on_click,
+            ):
+                menu.is_enabled = False
+                yield menu
+
+            menu._menu_button = _MenuButton(menu_name, menu, id(menubar))  # Last menu yielded
+            menubar.add_widget(menu._menu_button)
+            x += menu._menu_button.width
+
+        yield menubar

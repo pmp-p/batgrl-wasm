@@ -1,50 +1,47 @@
 from nurses_2.app import App
-from nurses_2.widgets.button import Button
-from nurses_2.widgets.menu import Menu
+from nurses_2.widgets.menu import MenuBar
 from nurses_2.widgets.text_widget import TextWidget
 
 class MyApp(App):
     async def on_start(self):
         label = TextWidget(size=(1, 50))
 
-        def add_text(text):
+        def add_label(text):
             def inner():
-                label.add_text(f"{text:<50}"[:50])
+                label.add_str(f"{text:<50}"[:50])
             return inner
 
-        def add_text_toggle(text):
+        def add_label_toggle(text):
             def inner(toggle_state):
-                label.add_text(f"{f'{text} {toggle_state}':<50}"[:50])
+                label.add_str(f"{f'{text} {toggle_state}':<50}"[:50])
             return inner
 
         # These "keybinds" aren't implemented.
-        menu_dict = {
-            ("New File", "Ctrl+N"): add_text("New File"),
-            ("Open File...", "Ctrl+O"): add_text("Open File..."),
-            ("Save", "Ctrl+S"): add_text("Save"),
-            ("Save as...", "Ctrl+Shift+S"): add_text("Save as..."),
+        file_menu = {
+            ("New File", "Ctrl+N"): add_label("New File"),
+            ("Open File...", "Ctrl+O"): add_label("Open File..."),
+            ("Save", "Ctrl+S"): add_label("Save"),
+            ("Save as...", "Ctrl+Shift+S"): add_label("Save as..."),
             ("Preferences", ""): {
-                ("Settings", "Ctrl+,"): add_text("Settings"),
-                ("Keyboard Shortcuts", "Ctrl+K Ctrl+S"): add_text("Keyboard Shortcuts"),
-                ("Toggle Item 1", ""): add_text_toggle("Toggle Item 1"),
-                ("Toggle Item 2", ""): add_text_toggle("Toggle Item 2"),
+                ("Settings", "Ctrl+,"): add_label("Settings"),
+                ("Keyboard Shortcuts", "Ctrl+K Ctrl+S"): add_label("Keyboard Shortcuts"),
+                ("Toggle Item 1", ""): add_label_toggle("Toggle Item 1"),
+                ("Toggle Item 2", ""): add_label_toggle("Toggle Item 2"),
             },
         }
 
+        edit_menu = {
+            ("Undo", "Ctrl+Z"): add_label("Undo"),
+            ("Redo", "Ctrl+Y"): add_label("Redo"),
+            ("Cut", "Ctrl+X"): add_label("Cut"),
+            ("Copy", "Ctrl+C"): add_label("Copy"),
+            ("Paste", "Ctrl+V"): add_label("Paste"),
+        }
+
         self.add_widget(label)
-        self.add_widgets(Menu.from_dict_of_dicts(menu_dict, pos=(2, 0)))
+        self.add_widgets(MenuBar.from_iterable((("File", file_menu), ("Edit", edit_menu)), pos=(2, 0)))
 
-        root_menu = self.children[-1]
-        root_menu.is_enabled = False
-        root_menu.children[1].item_disabled = True
-
-        def toggle_root_menu():
-            if root_menu.is_enabled:
-                root_menu.close_menu()
-            else:
-                root_menu.open_menu()
-
-        self.add_widget(Button(label="File", callback=toggle_root_menu, pos=(1, 0), size=(1, 6)))
+        self.children[-2].children[1].item_disabled = True
 
 
 MyApp(title="Menu Example").run()

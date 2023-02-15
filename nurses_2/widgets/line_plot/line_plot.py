@@ -7,7 +7,7 @@ from wcwidth import wcswidth
 
 from ...colors import Color, WHITE_ON_BLACK
 from ...io import MouseEvent, MouseEventType
-from ..text_widget import TextWidget, SizeHint, Anchor, Size
+from ..text_widget import TextWidget, SizeHint, Anchor, add_text
 from ..scroll_view import ScrollView
 from ..widget import Widget
 from ._legend import _Legend
@@ -153,8 +153,8 @@ class LinePlot(Widget):
     -------
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -248,7 +248,7 @@ class LinePlot(Widget):
             anchor=Anchor.BOTTOM_LEFT,
             **text_kwargs
         )
-        self._tick_corner.canvas[0, -1] = "└"
+        self._tick_corner.canvas["char"][0, -1] = "└"
 
         self.plot.add_widgets(
             self._scrollview,
@@ -261,14 +261,14 @@ class LinePlot(Widget):
 
         if xlabel is not None:
             self.xlabel = TextWidget(size=(1, wcswidth(xlabel)), **text_kwargs)
-            self.xlabel.add_text(xlabel)
+            self.xlabel.add_str(xlabel)
             self.add_widget(self.xlabel)
         else:
             self.xlabel = None
 
         if ylabel is not None:
             self.ylabel = TextWidget(size=(wcswidth(ylabel), 1), **text_kwargs)
-            self.ylabel.get_view[:, 0].add_text(ylabel)
+            add_text(self.ylabel.canvas[:, 0], ylabel)
             self.plot.left += 1
             self.add_widget(self.ylabel)
         else:

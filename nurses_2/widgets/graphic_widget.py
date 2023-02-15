@@ -10,7 +10,7 @@ from ..clamp import clamp
 from ..colors import AColor, TRANSPARENT
 from ..data_structures import *
 from .graphic_widget_data_structures import *
-from .widget import Widget, emitter
+from .widget import Widget, subscribable
 from .widget_data_structures import *
 
 __all__ = (
@@ -165,8 +165,8 @@ class GraphicWidget(Widget):
         Write :attr:`texture` to provided path as a `png` image.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -232,7 +232,7 @@ class GraphicWidget(Widget):
         return self._alpha
 
     @alpha.setter
-    @emitter
+    @subscribable
     def alpha(self, alpha: float):
         self._alpha = clamp(float(alpha), 0.0, 1.0)
 
@@ -274,7 +274,7 @@ class GraphicWidget(Widget):
         else:
             # If alpha compositing with a text widget, will look better to replace
             # foreground colors with background colors in most cases.
-            mask = canvas_view != "▀"
+            mask = canvas_view != style_char("▀")
             foreground[mask] = background[mask]
 
             even_buffer = np.subtract(even_rows[..., :3], foreground, dtype=float)
@@ -291,7 +291,7 @@ class GraphicWidget(Widget):
             np.add(even_buffer, foreground, out=foreground, casting="unsafe")
             np.add(odd_buffer, background, out=background, casting="unsafe")
 
-        canvas_view[:] = "▀"
+        canvas_view[:] = style_char("▀")
         self.render_children(source, canvas_view, colors_view)
 
     def to_png(self, path: Path):

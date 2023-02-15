@@ -6,29 +6,31 @@ from ..widget import Widget
 from ..behaviors.themable import Themable
 from .indicators import _VerticalIndicator, _HorizontalIndicator
 
-VBAR_WIDTH = 2
-HBAR_HEIGHT = 1
-
 
 class _VerticalBar(Themable, Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
         self.indicator = _VerticalIndicator()
         self.add_widget(self.indicator)
         self.background_char = " "
-        self.update_theme()
 
     def update_theme(self):
-        self.background_color_pair = self.color_theme.primary_dark_color_pair
+        self.background_color_pair = self.color_theme.scrollbar * 2
 
-    def update_geometry(self):
-        h, w = self.parent.size
+    def on_add(self):
+        super().on_add()
 
-        self.left = w - VBAR_WIDTH
-        self.size = h, VBAR_WIDTH
+        def update_size_pos():
+            h, w = self.parent.size
+            self.x = w - 2
+            self.height = h
 
-        super().update_geometry()
+        update_size_pos()
+        self.subscribe(self.parent, "size", update_size_pos)
+
+    def on_remove(self):
+        self.unsubscribe(self.parent, "size")
+        super().on_remove()
 
     @property
     def fill_height(self):
@@ -38,18 +40,19 @@ class _VerticalBar(Themable, Widget):
         return (
             self.height
             - self.indicator.height
-            - self.parent.show_horizontal_bar * HBAR_HEIGHT
+            - self.parent.show_horizontal_bar
         )
 
     def on_mouse(self, mouse_event):
         if (
             mouse_event.event_type == MouseEventType.MOUSE_DOWN
+            and self.fill_height != 0
             and self.collides_point(mouse_event.position)
         ):
             y = self.to_local(mouse_event.position).y
             sv = self.parent
 
-            if not (y >= self.height - HBAR_HEIGHT and sv.show_horizontal_bar):
+            if not sv.show_horizontal_bar or y < self.height - 1:
                 sv.vertical_proportion = y / self.fill_height
                 self.indicator.grab(mouse_event)
 
@@ -59,22 +62,27 @@ class _VerticalBar(Themable, Widget):
 class _HorizontalBar(Themable, Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
         self.indicator = _HorizontalIndicator()
         self.add_widget(self.indicator)
         self.background_char = " "
-        self.update_theme()
 
     def update_theme(self):
-        self.background_color_pair = self.color_theme.primary_dark_color_pair
+        self.background_color_pair = self.color_theme.scrollbar * 2
 
-    def update_geometry(self):
-        h, w = self.parent.size
+    def on_add(self):
+        super().on_add()
 
-        self.top = h - HBAR_HEIGHT
-        self.size = HBAR_HEIGHT, w
+        def update_size_pos():
+            h, w = self.parent.size
+            self.y = h - 1
+            self.width = w
 
-        super().update_geometry()
+        update_size_pos()
+        self.subscribe(self.parent, "size", update_size_pos)
+
+    def on_remove(self):
+        self.unsubscribe(self.parent, "size")
+        super().on_remove()
 
     @property
     def fill_width(self):
@@ -84,18 +92,19 @@ class _HorizontalBar(Themable, Widget):
         return (
             self.width
             - self.indicator.width
-            - self.parent.show_vertical_bar * VBAR_WIDTH
+            - self.parent.show_vertical_bar * 2
         )
 
     def on_mouse(self, mouse_event):
         if (
             mouse_event.event_type == MouseEventType.MOUSE_DOWN
+            and self.fill_width != 0
             and self.collides_point(mouse_event.position)
         ):
             x = self.to_local(mouse_event.position).x
             sv = self.parent
 
-            if not (x >= self.width - VBAR_WIDTH and sv.show_vertical_bar):
+            if not sv.show_vertical_bar or x < self.width - 2:
                 sv.horizontal_proportion = x / self.fill_width
                 self.indicator.grab(mouse_event)
 

@@ -7,7 +7,6 @@ from collections.abc import Callable
 
 from wcwidth import wcswidth
 
-from ..colors import ColorPair
 from .scroll_view import ScrollView
 from .tree_view import TreeViewNode, TreeView
 from .behaviors.themable import Themable
@@ -28,268 +27,37 @@ if platform.system() == "Windows":
 
     IS_HIDDEN = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM
 
-    def is_hidden(path: Path):
+    def _is_hidden(path: Path):
         attrs = windll.kernel32.GetFileAttributesW(str(path.absolute()))
         return attrs != -1 and bool(attrs & IS_HIDDEN)
 
 else:
-    def is_hidden(path: Path):
+    def _is_hidden(path: Path):
         return path.stem.startswith(".")
 
 
-class FileViewNode(TreeViewNode):
-    """
-    Node for FileView.
-
-    Parameters
-    ----------
-    is_leaf : bool, default: True
-        True if node is a leaf node.
-    always_release : bool, default: False
-        Whether a mouse up event outside the button will trigger it.
-    size : Size, default: Size(10, 10)
-        Size of widget.
-    pos : Point, default: Point(0, 0)
-        Position of upper-left corner in parent.
-    size_hint : SizeHint, default: SizeHint(None, None)
-        Proportion of parent's height and width. Non-None values will have
-        precedent over :attr:`size`.
-    min_height : int | None, default: None
-        Minimum height set due to size_hint. Ignored if corresponding size
-        hint is None.
-    max_height : int | None, default: None
-        Maximum height set due to size_hint. Ignored if corresponding size
-        hint is None.
-    min_width : int | None, default: None
-        Minimum width set due to size_hint. Ignored if corresponding size
-        hint is None.
-    max_width : int | None, default: None
-        Maximum width set due to size_hint. Ignored if corresponding size
-        hint is None.
-    pos_hint : PosHint, default: PosHint(None, None)
-        Position as a proportion of parent's height and width. Non-None values
-        will have precedent over :attr:`pos`.
-    anchor : Anchor, default: Anchor.TOP_LEFT
-        The point of the widget attached to :attr:`pos_hint`.
-    is_transparent : bool, default: False
-        If true, background_char and background_color_pair won't be painted.
-    is_visible : bool, default: True
-        If false, widget won't be painted, but still dispatched.
-    is_enabled : bool, default: True
-        If false, widget won't be painted or dispatched.
-    background_char : str | None, default: None
-        The background character of the widget if not `None` and if the widget
-        is not transparent.
-    background_color_pair : ColorPair | None, default: None
-        The background color pair of the widget if not `None` and if the
-        widget is not transparent.
-
-    Attributes
-    ----------
-    is_leaf : bool
-        True if node is a leaf node.
-    is_open : bool
-        True if node is open.
-    is_selected : bool
-        True if node is selected.
-    parent_node : TreeViewNode | None
-        Parent node.
-    child_nodes : list[TreeViewNode]
-        Children nodes.
-    level : int
-        Depth of node in tree.
-    always_release : bool
-        Whether a mouse up event outside the button will trigger it.
-    state : ButtonState
-        Current button state. One of `NORMAL`, `HOVER`, `DOWN`.
-    canvas : numpy.ndarray
-        The array of characters for the widget.
-    colors : numpy.ndarray
-        The array of color pairs for each character in :attr:`canvas`.
-    default_char : str, default: " "
-        Default background character.
-    default_color_pair : ColorPair, default: WHITE_ON_BLACK
-        Default color pair of widget.
-    default_fg_color: Color
-        The default foreground color.
-    default_bg_color: Color
-        The default background color.
-    get_view: CanvasView
-        Return a :class:`nurses_2.widgets.text_widget_data_structures.CanvasView`
-        of the underlying :attr:`canvas`.
-    size : Size
-        Size of widget.
-    height : int
-        Height of widget.
-    rows : int
-        Alias for :attr:`height`.
-    width : int
-        Width of widget.
-    columns : int
-        Alias for :attr:`width`.
-    pos : Point
-        Position relative to parent.
-    top : int
-        Y-coordinate of position.
-    y : int
-        Y-coordinate of position.
-    left : int
-        X-coordinate of position.
-    x : int
-        X-coordinate of position.
-    bottom : int
-        :attr:`top` + :attr:`height`.
-    right : int
-        :attr:`left` + :attr:`width`.
-    absolute_pos : Point
-        Absolute position on screen.
-    center : Point
-        Center of widget in local coordinates.
-    size_hint : SizeHint
-        Size as a proportion of parent's size.
-    height_hint : float | None
-        Height as a proportion of parent's height.
-    width_hint : float | None
-        Width as a proportion of parent's width.
-    min_height : int
-        Minimum height allowed when using :attr:`size_hint`.
-    max_height : int
-        Maximum height allowed when using :attr:`size_hint`.
-    min_width : int
-        Minimum width allowed when using :attr:`size_hint`.
-    max_width : int
-        Maximum width allowed when using :attr:`size_hint`.
-    pos_hint : PosHint
-        Position as a proportion of parent's size.
-    y_hint : float | None
-        Vertical position as a proportion of parent's size.
-    x_hint : float | None
-        Horizontal position as a proportion of parent's size.
-    anchor : Anchor
-        Determines which point is attached to :attr:`pos_hint`.
-    background_char : str | None
-        Background character.
-    background_color_pair : ColorPair | None
-        Background color pair.
-    parent : Widget | None
-        Parent widget.
-    children : list[Widget]
-        Children widgets.
-    is_transparent : bool
-        True if widget is transparent.
-    is_visible : bool
-        True if widget is visible.
-    is_enabled : bool
-        True if widget is enabled.
-    root : Widget | None
-        If widget is in widget tree, return the root widget.
-    app : App
-        The running app.
-
-    Methods
-    -------
-    iter_open_nodes:
-        Yield all child nodes and recursively yield from:
-        all open child nodes.
-    add_node:
-        Add a child node.
-    remove_node:
-        Remove a child node.
-    toggle:
-        Close node if node is open else open node.
-    select:
-        Select this node.
-    unselect:
-        Unselect this node.
-    update_theme:
-        Repaint the widget with a new theme. This should be called at:
-        least once when a widget is initialized.
-    update_normal:
-        Paint the normal state.
-    update_hover:
-        Paint the hover state.
-    update_down:
-        Paint the down state.
-    on_release:
-        Triggered when a button is released.
-    add_border:
-        Add a border to the widget.
-    normalize_canvas:
-        Add zero-width characters after each full-width character.
-    add_text:
-        Add text to the canvas.
-    on_size:
-        Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
-    to_local:
-        Convert point in absolute coordinates to local coordinates.
-    collides_point:
-        True if point is within widget's bounding box.
-    collides_widget:
-        True if other is within widget's bounding box.
-    add_widget:
-        Add a child widget.
-    add_widgets:
-        Add multiple child widgets.
-    remove_widget:
-        Remove a child widget.
-    pull_to_front:
-        Move to end of widget stack so widget is drawn last.
-    walk_from_root:
-        Yield all descendents of root widget.
-    walk:
-        Yield all descendents (or ancestors if `reverse` is True).
-    subscribe:
-        Subscribe to a widget property.
-    unsubscribe:
-        Unsubscribe to a widget property.
-    on_key:
-        Handle key press event.
-    on_mouse:
-        Handle mouse event.
-    on_paste:
-        Handle paste event.
-    tween:
-        Sequentially update a widget property over time.
-    on_add:
-        Called after a widget is added to widget tree.
-    on_remove:
-        Called before widget is removed from widget tree.
-    prolicide:
-        Recursively remove all children.
-    destroy:
-        Destroy this widget and all descendents.
-    """
+class _FileViewNode(TreeViewNode):
     def __init__(self, path: Path, **kwargs):
         super().__init__(is_leaf=path.is_file(), **kwargs)
         self.path = path
 
+    @property
+    def label(self) -> str:
+        return (
+            f"{NESTED_PREFIX * self.level}"
+            f"{FILE_PREFIX if self.path.is_file() else OPEN_FOLDER_PREFIX if self.is_open else FOLDER_PREFIX}"
+            f"{self.path.name}"
+        )
+
     def _toggle_update(self):
         if not self.child_nodes:
-            prefix = NESTED_PREFIX * (self.level + 1)
-
             paths = sorted(
                 self.path.iterdir(),
                 key=lambda path: (path.is_file(), path.name),
             )
 
             for path in paths:
-                file_view_node = FileViewNode(path=path)
-
-                self.add_node(file_view_node)
-
-                file_view_node.label = (
-                    f"{prefix}"
-                    f"{FOLDER_PREFIX if file_view_node.path.is_dir() else FILE_PREFIX}"
-                    f"{file_view_node.path.name}"
-                )
-
-        self.label = (
-            f"{NESTED_PREFIX * self.level}"
-            f"{OPEN_FOLDER_PREFIX if self.is_open else FOLDER_PREFIX}"
-            f"{self.path.name}"
-        )
+                self.add_node(_FileViewNode(path=path))
 
     def on_mouse(self, mouse_event):
         if (
@@ -304,188 +72,10 @@ class FileViewNode(TreeViewNode):
         return super().on_mouse(mouse_event)
 
 
-class FileView(TreeView):
-    """
-    A tree view of a file structure.
-
-    Parameters
-    ----------
-    root_node : TreeViewNode
-        Root node of tree view.
-    directories_only : bool, default: False
-        If true, show only directories in the file view.
-    show_hidden : bool, default: True
-        If False, hidden files won't be rendered.
-    select_callback : Callable[[Path], None], default: lambda path: None
-        Called with path of selected node when node is double-clicked
-        or `enter` is pressed.
-    size : Size, default: Size(10, 10)
-        Size of widget.
-    pos : Point, default: Point(0, 0)
-        Position of upper-left corner in parent.
-    size_hint : SizeHint, default: SizeHint(None, None)
-        Proportion of parent's height and width. Non-None values will have
-        precedent over `size`.
-    min_height : int | None, default: None
-        Minimum height set due to size_hint. Ignored if corresponding size
-        hint is None.
-    max_height : int | None, default: None
-        Maximum height set due to size_hint. Ignored if corresponding size
-        hint is None.
-    min_width : int | None, default: None
-        Minimum width set due to size_hint. Ignored if corresponding size
-        hint is None.
-    max_width : int | None, default: None
-        Maximum width set due to size_hint. Ignored if corresponding size
-        hint is None.
-    pos_hint : PosHint, default: PosHint(None, None)
-        Position as a proportion of parent's height and width. Non-None values
-        will have precedent over :attr:`pos`.
-    anchor : Anchor, default: Anchor.TOP_LEFT
-        The point of the widget attached to :attr:`pos_hint`.
-    is_transparent : bool, default: False
-        If true, background_char and background_color_pair won't be painted.
-    is_visible : bool, default: True
-        If false, widget won't be painted, but still dispatched.
-    is_enabled : bool, default: True
-        If false, widget won't be painted or dispatched.
-    background_char : str | None, default: None
-        The background character of the widget if not `None` and if the widget
-        is not transparent.
-    background_color_pair : ColorPair | None, default: None
-        The background color pair of the widget if not `None` and if the
-        widget is not transparent.
-
-    Attributes
-    ----------
-    root_node : TreeViewNode
-        Root node of tree view
-    directories_only : bool
-        If true, show only directories in the file view.
-    show_hidden : bool
-        If False, hidden files won't be rendered.
-    select_callback : Callable[[Path], None]
-        Called with path of selected node when node is double-clicked
-        or `enter` is pressed.
-    size : Size
-        Size of widget.
-    height : int
-        Height of widget.
-    rows : int
-        Alias for :attr:`height`.
-    width : int
-        Width of widget.
-    columns : int
-        Alias for :attr:`width`.
-    pos : Point
-        Position relative to parent.
-    top : int
-        Y-coordinate of position.
-    y : int
-        Y-coordinate of position.
-    left : int
-        X-coordinate of position.
-    x : int
-        X-coordinate of position.
-    bottom : int
-        :attr:`top` + :attr:`height`.
-    right : int
-        :attr:`left` + :attr:`width`.
-    absolute_pos : Point
-        Absolute position on screen.
-    center : Point
-        Center of widget in local coordinates.
-    size_hint : SizeHint
-        Size as a proportion of parent's size.
-    height_hint : float | None
-        Height as a proportion of parent's height.
-    width_hint : float | None
-        Width as a proportion of parent's width.
-    min_height : int
-        Minimum height allowed when using :attr:`size_hint`.
-    max_height : int
-        Maximum height allowed when using :attr:`size_hint`.
-    min_width : int
-        Minimum width allowed when using :attr:`size_hint`.
-    max_width : int
-        Maximum width allowed when using :attr:`size_hint`.
-    pos_hint : PosHint
-        Position as a proportion of parent's size.
-    y_hint : float | None
-        Vertical position as a proportion of parent's size.
-    x_hint : float | None
-        Horizontal position as a proportion of parent's size.
-    anchor : Anchor
-        Determines which point is attached to :attr:`pos_hint`.
-    background_char : str | None
-        Background character.
-    background_color_pair : ColorPair | None
-        Background color pair.
-    parent : Widget | None
-        Parent widget.
-    children : list[Widget]
-        Children widgets.
-    is_transparent : bool
-        True if widget is transparent.
-    is_visible : bool
-        True if widget is visible.
-    is_enabled : bool
-        True if widget is enabled.
-    root : Widget | None
-        If widget is in widget tree, return the root widget.
-    app : App
-        The running app.
-
-    Methods
-    -------
-    update_tree_layout:
-        Update tree layout after a child node is toggled open or closed.
-    on_size:
-        Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
-    to_local:
-        Convert point in absolute coordinates to local coordinates.
-    collides_point:
-        True if point is within widget's bounding box.
-    collides_widget:
-        True if other is within widget's bounding box.
-    add_widget:
-        Add a child widget.
-    add_widgets:
-        Add multiple child widgets.
-    remove_widget:
-        Remove a child widget.
-    pull_to_front:
-        Move to end of widget stack so widget is drawn last.
-    walk_from_root:
-        Yield all descendents of root widget.
-    walk:
-        Yield all descendents (or ancestors if `reverse` is True).
-    subscribe:
-        Subscribe to a widget property.
-    unsubscribe:
-        Unsubscribe to a widget property.
-    on_key:
-        Handle key press event.
-    on_mouse:
-        Handle mouse event.
-    on_paste:
-        Handle paste event.
-    tween:
-        Sequentially update a widget property over time.
-    on_add:
-        Called after a widget is added to widget tree.
-    on_remove:
-        Called before widget is removed from widget tree.
-    prolicide:
-        Recursively remove all children.
-    destroy:
-        Destroy this widget and all descendents.
-    """
+class _FileView(TreeView):
     def __init__(
         self,
-        root_node: FileViewNode,
+        root_node: _FileViewNode,
         directories_only: bool=False,
         show_hidden: bool=True,
         select_callback: Callable[[Path], None]=lambda path: None,
@@ -503,20 +93,18 @@ class FileView(TreeView):
         if self.directories_only:
             it = (node for node in it if node.path.is_dir())
         if not self.show_hidden:
-            it = (node for node in it if not is_hidden(node.path))
+            it = (node for node in it if not _is_hidden(node.path))
 
-        max_height = 0
-        max_width = self.parent and self.parent.width or -1
-        for max_height, node in enumerate(it):
+        max_width = self.parent and self.parent.port_width or 1
+        for y, node in enumerate(it):
             max_width = max(max_width, wcswidth(node.label))
-            node.top = max_height
+            node.y = y
             self.add_widget(node)
-        self.size = max_height + 1, max_width
+        self.size = y + 1, max_width
 
         for node in self.children:
             node.size = 1, max_width
-            node.repaint()
-            node.add_text(f"{node.label:<{max_width}}")
+            node.add_str(node.label)
 
     def on_key(self, key_event):
         if not self.children:
@@ -776,8 +364,8 @@ class FileChooser(Themable, ScrollView):
         Update widget with incoming mouse events while grabbed.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -828,18 +416,16 @@ class FileChooser(Themable, ScrollView):
     ):
         super().__init__(arrow_keys_enabled=arrow_keys_enabled, **kwargs)
         path = root_dir or Path()
-        self.view = FileView(
-            root_node=FileViewNode(path=path),
+        self.view = _FileView(
+            root_node=_FileViewNode(path=path),
             directories_only=directories_only,
             show_hidden=show_hidden,
             select_callback=select_callback,
         )
         self._root_dir = path
-        self.update_theme()
 
     def update_theme(self):
-        bg = self.color_theme.primary_bg
-        self.background_color_pair = ColorPair.from_colors(bg, bg)
+        self.background_color_pair = self.color_theme.primary.bg_color * 2
 
     def on_size(self):
         super().on_size()
@@ -880,3 +466,5 @@ class FileChooser(Themable, ScrollView):
         root.is_open = False
         root.path = path
         root.toggle()
+        self.vertical_proportion = 0
+        self.horizontal_proportion = 0

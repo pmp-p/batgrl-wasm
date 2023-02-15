@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 
 from ..clamp import clamp
-from .graphic_widget_data_structures import Interpolation, read_texture
+from .graphic_widget_data_structures import Interpolation
 from .image import Image
-from .widget import Widget, emitter
+from .widget import Widget, subscribable, style_char
 
 __all__ = "Interpolation", "Parallax"
 
@@ -171,8 +171,8 @@ class Parallax(Widget):
         Create a :class:`Parallax` from an iterable of :class:`Image`.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -245,7 +245,7 @@ class Parallax(Widget):
         return self._alpha
 
     @alpha.setter
-    @emitter
+    @subscribable
     def alpha(self, alpha: float):
         self._alpha = clamp(float(alpha), 0.0, 1.0)
         for layer in self.layers:
@@ -300,7 +300,7 @@ class Parallax(Widget):
     def render(self, canvas_view, colors_view, source: tuple[slice, slice]):
         if not self.is_transparent:
             if self.background_char is not None:
-                canvas_view[:] = self.background_char
+                canvas_view[:] = style_char(self.background_char)
 
             if self.background_color_pair is not None:
                 colors_view[:] = self.background_color_pair

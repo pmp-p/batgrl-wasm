@@ -2,13 +2,13 @@ from collections.abc import Callable
 
 from wcwidth import wcswidth
 
-from ..colors import lerp_colors, WHITE, ColorPair
+from ..colors import lerp_colors, WHITE
 from ..io import Key, KeyEvent, Mods, MouseButton, MouseEvent, PasteEvent
 from .behaviors.focus_behavior import FocusBehavior
 from .behaviors.grabbable_behavior import GrabbableBehavior
 from .behaviors.themable import Themable
 from .text_widget import TextWidget
-from .widget import Widget
+from .widget import Widget, style_char
 
 
 class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
@@ -73,9 +73,9 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
     ----------
     text : str
         The textbox's text.
-    enter_callback : Callable | None, default: None
+    enter_callback : Callable | None
         Called when textbox has focus and `enter` is pressed.
-    max_chars : int | None, default: None
+    max_chars : int | None
         Maximum allowed number of characters in textbox.
     ptf_on_focus : bool
         Pull widget to front when it gains focus.
@@ -83,11 +83,11 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         Return True if widget has focus.
     any_focused : bool
         Return True if any widget has focus.
-    is_grabbable : bool, default: True
+    is_grabbable : bool
         If False, grabbable behavior is disabled.
-    disable_ptf : bool, default: False
+    disable_ptf : bool
         If True, widget will not be pulled to front when grabbed.
-    mouse_button : MouseButton, default: MouseButton.LEFT
+    mouse_button : MouseButton
         Mouse button used for grabbing.
     is_grabbed : bool
         True if widget is grabbed.
@@ -190,8 +190,8 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         Update widget with incoming mouse events while grabbed.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -230,13 +230,6 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         Recursively remove all children.
     destroy:
         Destroy this widget and all descendents.
-
-    Notes
-    -----
-    The cursor for text input widgets is the real terminal cursor. Because the terminal cursor isn't subject to
-    the painter's algorithm for rendering widgets, it's possible for a text input widget to be covered by
-    another widget, but the cursor still be visible. This may be resolved in the future by attaching clipping
-    regions to widgets.
     """
     def __init__(self, enter_callback: Callable | None=None, max_chars: int | None=None, **kwargs):
         super().__init__(**kwargs)
@@ -244,53 +237,26 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         self.enter_callback = enter_callback
         self.max_chars = max_chars
 
-        self._cursor = self._prev_cursor = 0
+        self._prev_cursor_x = 0
         self._selection_start = self._selection_end = None
         self._line_length = 0
 
+        self._cursor = TextWidget(size=(1, 1), is_enabled=False)
         self._box = TextWidget(size=(1, 1))
-
-        self.update_theme()
-
-    def update_theme(self):
-        primary = self.color_theme.primary_color_pair
-        backgound = primary.bg_color
-
-        self._box.colors[:] = primary
-        self._box.default_color_pair = primary
-        self.background_color_pair = ColorPair.from_colors(backgound, backgound)
-
-        self.selection_hightlight = lerp_colors(backgound, WHITE, 1/10)
-
-        self._highlight_selection()
-
-    def on_add(self):
-        super().on_add()
-
+        self._box.add_widget(self._cursor)
         self.add_widget(self._box)
 
-        # To keep real cursor's position in-sync with virtual cursor's absolute position,
-        # subscribe to every ancestor's `pos` property.
+    def update_theme(self):
+        primary = self.color_theme.primary
 
-        self.subscribe(self._box, "pos", self._update_cursor)
-        self.subscribe(self, "pos", self._update_cursor)
+        self._cursor.colors[:] = primary.reversed()
+        self._cursor.default_color_pair = primary.reversed()
+        self._box.colors[:] = primary
+        self._box.default_color_pair = primary
+        self.background_color_pair = primary
 
-        for ancestor in self.walk(reverse=True):
-            if ancestor is not self.root:
-                self._box.subscribe(ancestor, "pos", self._update_cursor)
-
-    def on_remove(self):
-        super().on_remove()
-
-        if self._box in self.children:
-            self.remove_widget(self._box)
-
-        self.unsubscribe(self._box, "pos")
-        self.unsubscribe(self, "pos")
-
-        for ancestor in self.walk(reverse=True):
-            if ancestor is not self.root:
-                self.unsubscribe(ancestor, "pos")
+        self.selection_hightlight = lerp_colors(primary.bg_color, WHITE, 1/10)
+        self._highlight_selection()
 
     def on_size(self):
         if self.width > self._box.width:
@@ -299,33 +265,15 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
             self._box.width = max(self.width, self._line_length + 1)
         self._highlight_selection()
 
-    def _update_cursor(self):
-        """
-        Move or hide terminal cursor to match position of `self.cursor`.
-        """
-        if not self.root:
-            return
+    def on_focus(self):
+        self._cursor.is_enabled = True
 
-        y, x = self._box.absolute_pos
-        x += self._cursor
-        out = self.root.env_out
-
-        if (
-            self.is_focused
-            and self._box.collides_point((y, x))
-        ):
-            out._buffer.append(f"\x1b[{y + 1};{x + 1}H")  # Move cursor.
-            out.show_cursor()
-        else:
-            out.hide_cursor()
-
-    on_focus = _update_cursor
-
-    on_blur = _update_cursor
+    def on_blur(self):
+        self._cursor.is_enabled = False
 
     @property
     def text(self) -> str:
-        return "".join(self._box.canvas[0, :self._line_length])
+        return "".join(self._box.canvas["char"][0, :self._line_length])
 
     @text.setter
     def text(self, text: str):
@@ -333,22 +281,23 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         self._line_length = wcswidth(text)
 
         box = self._box
-        box.canvas[:] = " "
+        box.canvas[:] = style_char(" ")
         box.width = max(self._line_length + 1, self.width)
-        box.add_text(text)
+        box.add_str(text)
         self.cursor = self._line_length
 
     @property
     def cursor(self) -> int:
-        return self._cursor
+        return self._cursor.x
 
     @cursor.setter
     def cursor(self, cursor: int):
         """
         After setting cursor position, move textbox so that cursor is visible.
         """
-        self._prev_cursor = self._cursor
-        self._cursor = cursor
+        self._prev_cursor_x = self._cursor.x
+        self._cursor.x = cursor
+        self._cursor.canvas[0, 0] = self._box.canvas[0, cursor]
 
         max_x = self.width - 1
         if (rel_x := cursor + self._box.x) > max_x:
@@ -356,7 +305,6 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         elif rel_x < 0:
             self._box.x -= rel_x
 
-        self._update_cursor()
         self._update_selection()
 
     @property
@@ -383,7 +331,7 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         new_len = self._line_length = start + len_end
 
         box.canvas[0, start: new_len] = box.canvas[0, end: end + len_end]
-        box.canvas[0, new_len:] = box.default_char
+        box.canvas[0, new_len:] = style_char(box.default_char)
 
         self.unselect()
 
@@ -401,9 +349,9 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
 
     def _update_selection(self):
         if self.has_selection:
-            if self._prev_cursor == self._selection_start:
+            if self._prev_cursor_x == self._selection_start:
                 self._selection_start = self.cursor
-            elif self._prev_cursor == self._selection_end:
+            elif self._prev_cursor_x == self._selection_end:
                 self._selection_end = self.cursor
 
             if self._selection_start > self._selection_end:
@@ -412,10 +360,10 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         self._highlight_selection()
 
     def move_cursor_left(self, n: int=1):
-        self.cursor = max(0, self._cursor - n)
+        self.cursor = max(0, self._cursor.x - n)
 
     def move_cursor_right(self, n: int=1):
-        self.cursor = min(self._line_length, self._cursor + n)
+        self.cursor = min(self._line_length, self._cursor.x + n)
 
     def _enter(self):
         if self.enter_callback is not None:
@@ -498,7 +446,7 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
             box.width = self._line_length + 1
 
         box.canvas[0, x + 1:] = box.canvas[0, x: -1]
-        box.canvas[0, x] = key
+        box.canvas[0, x] = style_char(key)
 
         self.cursor = x + 1
 
@@ -542,9 +490,9 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         width_paste = wcswidth(paste)
 
         input_text = (
-            "".join(box.canvas[0, :x])
+            "".join(box.canvas["char"][0, :x])
             + paste
-            + "".join(box.canvas[0, x: self._line_length])
+            + "".join(box.canvas["char"][0, x: self._line_length])
         )[:self.max_chars]
 
         len_input = wcswidth(input_text)
@@ -552,8 +500,8 @@ class Textbox(Themable, FocusBehavior, GrabbableBehavior, Widget):
         if len_input >= box.width:
             box.width = len_input + 1
 
-        box.add_text(input_text)
-        box.canvas[0, len_input:] = box.default_char
+        box.add_str(input_text)
+        box.canvas[0, len_input:] = style_char(box.default_char)
 
         self._line_length = len_input
         self.cursor = min(len_input, x + width_paste)

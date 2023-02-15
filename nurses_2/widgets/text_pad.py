@@ -1,14 +1,16 @@
 from wcwidth import wcswidth
 
 from ..clamp import clamp
-from ..colors import lerp_colors, WHITE, ColorPair
+from ..colors import lerp_colors, WHITE
 from ..io import Key, KeyEvent, Mods, MouseButton, MouseEvent, PasteEvent
 from .behaviors.focus_behavior import FocusBehavior
 from .behaviors.themable import Themable
 from .scroll_view import ScrollView
-from .text_widget import TextWidget, Point
+from .text_widget import TextWidget, Point, add_text, style_char
 
 # TODO: Add an Undo stack.
+# TODO: Fix backspace/delete/select over full-width characters.
+# TODO: Move-across-word keybinds.
 
 
 class TextPad(Themable, FocusBehavior, ScrollView):
@@ -217,8 +219,8 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         Update widget with incoming mouse events while grabbed.
     on_size:
         Called when widget is resized.
-    update_geometry:
-        Called when parent is resized. Applies size and pos hints.
+    apply_hints:
+        Apply size and pos hints.
     to_local:
         Convert point in absolute coordinates to local coordinates.
     collides_point:
@@ -257,108 +259,57 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         Recursively remove all children.
     destroy:
         Destroy this widget and all descendents.
-
-    Notes
-    -----
-    The cursor for text input widgets is the real terminal cursor. Because the terminal cursor isn't subject to
-    the painter's algorithm for rendering widgets, it's possible for a text input widget to be covered by
-    another widget, but the cursor still be visible. This may be resolved in the future by attaching clipping
-    regions to widgets.
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        primary = self.color_theme.primary
+        self.selection_highlight = lerp_colors(primary.bg_color, WHITE, 1/10)
+        self.line_highlight = lerp_colors(primary.bg_color, WHITE, 1/40)
 
-        self._cursor = self._prev_cursor = Point(0, 0)
+        self._prev_cursor_pos = Point(0, 0)
         self._last_x = None
         self._selection_start = self._selection_end = None
         self._line_lengths = [0]
 
+        self._cursor = TextWidget(size=(1, 1), is_enabled=False)
         self._pad = TextWidget(size=(1, 1))
-
-        self.update_theme()
-
-    def update_theme(self):
-        primary = self.color_theme.primary_color_pair
-        backgound = primary.bg_color
-
-        self._pad.colors[:] = primary
-        self._pad.default_color_pair = primary
-        self.background_color_pair = ColorPair.from_colors(backgound, backgound)
-
-        self.selection_hightlight = lerp_colors(backgound, WHITE, 1/10)
-        self.line_highlight = lerp_colors(backgound, WHITE, 1/40)
-
-        self._highlight_selection()
-
-    def on_add(self):
-        super().on_add()
-
+        self._pad.add_widget(self._cursor)
         self.view = self._pad
 
-        # To keep real cursor's position in-sync with virtual cursor's absolute position,
-        # subscribe to every ancestor's `pos` property.
+    def update_theme(self):
+        primary = self.color_theme.primary
 
-        self.subscribe(self._pad, "pos", self._update_cursor)
-        self.subscribe(self, "pos", self._update_cursor)
+        self._cursor.colors[:] = primary.reversed()
+        self._cursor.default_color_pair = primary.reversed()
+        self._pad.colors[:] = primary
+        self._pad.default_color_pair = primary
+        self.background_color_pair = primary.bg_color * 2
 
-        for ancestor in self.walk(reverse=True):
-            if ancestor is not self.root:
-                self.subscribe(ancestor, "pos", self._update_cursor)
-
-    def on_remove(self):
-        super().on_remove()
-
-        self.view = None
-
-        self.unsubscribe(self._pad, "pos")
-        self.unsubscribe(self, "pos")
-
-        for ancestor in self.walk(reverse=True):
-            if ancestor is not self.root:
-                self.unsubscribe(ancestor, "pos")
+        self.selection_highlight = lerp_colors(primary.bg_color, WHITE, 1/10)
+        self.line_highlight = lerp_colors(primary.bg_color, WHITE, 1/40)
+        self._highlight_selection()
 
     def on_size(self):
         super().on_size()
 
-        if self.width > self._pad.width:
-                self._pad.width = self.width
-        elif self.width < self._pad.width:
-            self._pad.width = max(self.width, max(self._line_lengths) + 1)
+        if self.port_width > self._pad.width:
+            self._pad.width = self.port_width
+        elif self.port_width < self._pad.width:
+            self._pad.width = max(self.port_width, max(self._line_lengths) + 1)
 
         self._highlight_selection()
 
-    def _update_cursor(self):
-        """
-        Move or hide terminal cursor to match position of `self.cursor`.
-        """
-        if not self.root:
-            return
+    def on_focus(self):
+        self._cursor.is_enabled = True
 
-        py, px = self._pad.absolute_pos
-        cy, cx = self._cursor
-        cursor = y, x = py + cy, px + cx
-        out = self.root.env_out
-
-        if (
-            self.is_focused
-            and self._pad.collides_point(cursor)
-            and not (self.show_vertical_bar and self._vertical_bar.collides_point(cursor))
-            and not (self.show_horizontal_bar and self._horizontal_bar.collides_point(cursor))
-        ):
-            out._buffer.append(f"\x1b[{y + 1};{x + 1}H")  # Move cursor.
-            out.show_cursor()
-        else:
-            out.hide_cursor()
-
-    on_focus = _update_cursor
-
-    on_blur = _update_cursor
+    def on_blur(self):
+        self._cursor.is_enabled = False
 
     @property
     def text(self) -> str:
         return "\n".join(
             "".join(row[:nchars])
-            for row, nchars in zip(self._pad.canvas, self._line_lengths)
+            for row, nchars in zip(self._pad.canvas["char"], self._line_lengths)
         )
 
     @text.setter
@@ -367,16 +318,15 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         self._line_lengths = list(map(wcswidth, lines))
 
         pad = self._pad
-        pad.canvas[:] = " "
+        pad.canvas[:] = style_char(" ")
         pad.height = len(lines)
-        pad.width = max(max(self._line_lengths) + 1, self.width)
+        pad.width = max(max(self._line_lengths) + 1, self.port_width)
 
-        for i, line in enumerate(lines):
-            pad.add_text(line, row=i)
+        add_text(pad.canvas, text)
 
     @property
     def cursor(self) -> Point:
-        return self._cursor
+        return self._cursor.pos
 
     @cursor.setter
     def cursor(self, cursor: Point):
@@ -384,8 +334,9 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         After setting cursor position, move pad so that cursor is visible.
         """
         y, x = cursor
-        self._prev_cursor = self._cursor
-        self._cursor = Point(y, x)
+        self._prev_cursor_pos = self._cursor.pos
+        self._cursor.pos = Point(y, x)
+        self._cursor.canvas[0, 0] = self._pad.canvas[y, x]
 
         max_y = self.height - (self.show_horizontal_bar and 1) - 1
         if (rel_y := y + self._pad.y) > max_y:
@@ -393,13 +344,12 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         elif rel_y < 0:
             self._scroll_up(-rel_y)
 
-        max_x = self.width - (self.show_vertical_bar and 2) - 1
+        max_x = self.port_width - 1
         if (rel_x := x + self._pad.x) > max_x:
             self._scroll_right(rel_x - max_x)
         elif rel_x < 0:
             self._scroll_left(-rel_x)
 
-        self._update_cursor()
         self._update_selection()
 
     @property
@@ -442,7 +392,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
             pad.width = len_start + 1
 
         pad.canvas[sy, sx: len_start] = pad.canvas[ey, ex: ex + len_end]
-        pad.canvas[sy, len_start:] = pad.default_char
+        pad.canvas[sy, len_start:] = style_char(pad.default_char)
 
         remaining = pad.canvas[ey + 1:]
         pad.canvas[sy + 1: sy + 1 + len(remaining)] = remaining
@@ -460,7 +410,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         if self._selection_start != self._selection_end:
             sy, sx = self._selection_start
             ey, ex = self._selection_end
-            highlight = self.selection_hightlight
+            highlight = self.selection_highlight
             ll = self._line_lengths
 
             if ey > sy:
@@ -475,9 +425,9 @@ class TextPad(Themable, FocusBehavior, ScrollView):
 
     def _update_selection(self):
         if self.has_selection:
-            if self._prev_cursor == self._selection_start:
+            if self._prev_cursor_pos == self._selection_start:
                 self._selection_start = self.cursor
-            elif self._prev_cursor == self._selection_end:
+            elif self._prev_cursor_pos == self._selection_end:
                 self._selection_end = self.cursor
 
             if self._selection_start > self._selection_end:
@@ -487,7 +437,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
 
     def move_cursor_left(self, n: int=1):
         self._last_x = None
-        y, x = self._cursor
+        y, x = self._cursor.pos
 
         while n > 0:
             to_start = clamp(n, 0, x)
@@ -505,7 +455,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
 
     def move_cursor_right(self, n: int=1):
         self._last_x = None
-        y, x = self._cursor
+        y, x = self._cursor.pos
 
         while n > 0:
             to_end = clamp(n, 0, self._line_lengths[y] - x)
@@ -522,7 +472,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         self.cursor = y, x
 
     def move_cursor_up(self, n: int=1):
-        y, x = self._cursor
+        y, x = self._cursor.pos
 
         if self._last_x is None or y == x == 0:
             self._last_x = x
@@ -536,7 +486,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         self.cursor = y, x
 
     def move_cursor_down(self, n: int=1):
-        y, x = self._cursor
+        y, x = self._cursor.pos
         ey, ex = self.end_text_point
 
         if self._last_x is None or y == ey and x == ex:
@@ -558,18 +508,18 @@ class TextPad(Themable, FocusBehavior, ScrollView):
         pad.height += 1
 
         pad.canvas[y + 2:] = pad.canvas[y + 1: -1]
-        pad.canvas[y + 1] = pad.default_char
+        pad.canvas[y + 1] = style_char(pad.default_char)
 
         len_line = self._line_lengths[y] - x
         if len_line > 0:
             pad.canvas[y + 1, :len_line] = pad.canvas[y, x: x + len_line]
-            pad.canvas[y, x: x + len_line] = pad.default_char
+            pad.canvas[y, x: x + len_line] = style_char(pad.default_char)
 
         self._line_lengths[y] = x
         self._line_lengths.insert(y + 1, len_line)
 
-        if pad.width > self.width:
-            pad.width = max(self.width, max(self._line_lengths) + 1)
+        if pad.width > self.port_width:
+            pad.width = max(self.port_width, max(self._line_lengths) + 1)
 
         self.cursor = y + 1, 0
 
@@ -584,7 +534,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
             pad.width = self._line_lengths[y] + 1
 
         pad.canvas[y, x + 4:] = pad.canvas[y, x: -4]
-        pad.canvas[y, x: x + 4] = pad.default_char
+        pad.canvas[y, x: x + 4] = style_char(pad.default_char)
 
         self.cursor = y, x + 4
 
@@ -713,7 +663,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
             pad.width = self._line_lengths[y] + 1
 
         pad.canvas[y, x + 1:] = pad.canvas[y, x: -1]
-        pad.canvas[y, x] = key
+        pad.canvas[y, x] = style_char(key)
 
         self.cursor = y, x + 1
 
@@ -774,7 +724,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
             if ll[y] >= pad.width:
                 pad.width = ll[y] + 1
 
-            pad.add_text(paste, row=y, column=x)
+            pad.add_str(paste, (y, x))
             pad.canvas[y, x + len_paste: ll[y]] = line_remaining
 
             self.cursor = y, x + len_paste
@@ -785,7 +735,7 @@ class TextPad(Themable, FocusBehavior, ScrollView):
 
             pad.height += newlines
             pad.canvas[y + newlines + 1:] = pad.canvas[y + 1: -newlines]
-            pad.canvas[y, x: ll[y]] = pad.default_char
+            pad.canvas[y, x: ll[y]] = style_char(pad.default_char)
 
             ll[y] = x + wcswidth(first)
             for i, line in enumerate(lines, start=y + 1):
@@ -796,13 +746,13 @@ class TextPad(Themable, FocusBehavior, ScrollView):
             if max_width >= pad.width:
                 pad.width = max_width + 1
 
-            pad.add_text(first, row=y, column=x)
+            pad.add_str(first, (y, x))
             for i, line in enumerate(lines, start=y + 1):
-                pad.add_text(line.ljust(pad.width), row=i)
+                pad.add_str(line.ljust(pad.width), (i, 0))
 
-            pad.add_text(last, row=i + 1)
+            pad.add_str(last, (i + 1, 0))
             pad.canvas[i + 1, len_last: ll[i + 1]] = line_remaining
-            pad.canvas[i + 1, ll[i + 1]:] = pad.default_char
+            pad.canvas[i + 1, ll[i + 1]:] = style_char(pad.default_char)
 
             self.cursor = i + 1, len_last
 
