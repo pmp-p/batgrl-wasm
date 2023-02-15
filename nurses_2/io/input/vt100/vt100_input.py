@@ -30,7 +30,10 @@ def attach(callback):
     Context manager that makes this input active in the current event loop.
     """
     _EVENTS.clear()
-    embed.warn(f"@@@ 34 : TODO SIGWINCH {callback=}")
+    try:
+        embed.warn(f"@@@ 34 : TODO SIGWINCH {callback=}")
+    except:
+        pass
 
     stdin = sys.stdin.fileno()
 
