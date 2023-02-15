@@ -137,16 +137,24 @@ class App(ABC):
         Run the app.
         """
         try:
-            with redirect_stderr(StringIO()) as defer_stderr:
-                asyncio.run(self._run_async())
-        except asyncio.CancelledError:
-            pass
-        finally:
-            if self.log_file:
-                with open(self.log_file, "w") as log:
-                    print(defer_stderr.getvalue(), file=log, end="")
+            if sys.platform in ('emscripten','wasi'):
+                pass
             else:
-                print(defer_stderr.getvalue(), file=sys.stderr, end="")
+                asyncio.get_running_loop()
+            return asyncio.create_task(self._run_async())
+        except RuntimeError:
+            # we will run app directly
+            try:
+                with redirect_stderr(StringIO()) as defer_stderr:
+                    asyncio.run(self._run_async())
+            except asyncio.CancelledError:
+                pass
+            finally:
+                if self.log_file:
+                    with open(self.log_file, "w") as log:
+                        print(defer_stderr.getvalue(), file=log, end="")
+                else:
+                  print(defer_stderr.getvalue(), file=sys.stderr, end="")
 
     def exit(self):
         """

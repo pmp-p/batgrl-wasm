@@ -30,6 +30,10 @@ def attach(callback):
     Context manager that makes this input active in the current event loop.
     """
     _EVENTS.clear()
+    try:
+        embed.warn(f"@@@ 34 : TODO SIGWINCH {callback=}")
+    except:
+        pass
 
     stdin = sys.stdin.fileno()
 
@@ -52,6 +56,7 @@ def attach(callback):
 
 @contextmanager
 def raw_mode():
+    import tty
     stdin = sys.stdin.fileno()
     attrs_before = termios.tcgetattr(stdin)
 
